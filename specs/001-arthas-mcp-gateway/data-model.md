@@ -30,7 +30,7 @@
 | `url` | string | 是 | 后端 MCP 端点，复用 arthas http console，形如 `http://host:8563/mcp`；须合法 URL |
 | `protocol` | enum | 是 | `STREAMABLE` \| `STATELESS`；决定是否可用 task（STATELESS 不支持）。默认 `STREAMABLE` |
 | `auth.mode` | enum | 是 | `BEARER` \| `BASIC` \| `NONE`；MVP 受控内网多为 NONE/BEARER |
-| `auth.token` | string | BEARER 时必填 | Bearer token == 后端配置 password（[后端接入契约](../../../reference/arthas-docs/03-MCP/后端接入契约.md) §2.3） |
+| `auth.token` | string | BEARER 时必填 | Bearer token == 后端配置 password（[后端接入契约](../../reference/arthas-docs/03-MCP/后端接入契约.md) §2.3） |
 | `auth.username`/`password` | string | BASIC 时必填 | base64(user:pass) |
 | `connectTimeoutMs` | int | 否 | TCP + initialize 握手超时，默认 5000 |
 | `callTimeoutMs` | int | 否 | 单次同步 `tools/call` 超时，默认 30000（对齐 SC-003） |
@@ -75,7 +75,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `name` | string | 工具名（如 `watch`），摘抄自 [MCP能力清单](../../../reference/arthas-docs/03-MCP/MCP能力清单.md) |
+| `name` | string | 工具名（如 `watch`），摘抄自 [MCP能力清单](../../reference/arthas-docs/03-MCP/MCP能力清单.md) |
 | `description` | string | 摘抄自 `@Tool.description` |
 | `inputSchema` | JSON Schema | arthas 原始 schema **逐字拷贝** + 注入 `target`（string, required, 进 properties.required 与顶层 required）；`additionalProperties:false` 不变 |
 | `taskSupport` | enum | `forbidden`（27）/ `optional`（5）；照实暴露 |

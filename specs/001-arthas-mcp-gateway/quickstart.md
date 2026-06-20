@@ -48,22 +48,36 @@ backends:
 
 ### 2.2 启动网关
 
-```bash
-# stdio 模式（本地 Claude Code）
-./mvnw spring-boot:run -Dspring-boot.run.arguments="--transports.stdio.enabled=true --transports.http.enabled=false"
+> **MVP 仅 Streamable HTTP**（stdio 与 HTTP 互斥，stdio 延后；见 memory `sdk2-vs-spec-divergences`）。
+> 传输由 Spring AI starter 自动装配：端口走 `server.port`、端点走 `spring.ai.mcp.server.streamable-http.mcp-endpoint`（见 `application.yml`，默认值即 `8761` + `/mcp`，无需命令行覆盖）。
 
-# 或 HTTP 模式（远程/多客户端）
-./mvnw spring-boot:run -Dspring-boot.run.arguments="--transports.http.enabled=true --transports.http.port=8761"
+```bash
+# 默认即 HTTP，监听 8761、MCP 端点 /mcp（取自 application.yml）
+./mvnw spring-boot:run
+
+# 覆盖端口（如远程/多客户端时）
+./mvnw spring-boot:run -Dspring-boot.run.jvmArguments="-Dserver.port=8761"
 ```
+
+启动后 `/actuator/health` 返回 `{"status":"UP"}`，MCP 端点为 `http://localhost:8761/mcp`。
 
 ---
 
 ## 3. 接入 Claude Code
 
-**stdio 模式**：在 Claude Code 的 MCP 配置注册网关为 stdio server，命令指向启动脚本。
-**HTTP 模式**：注册为 Streamable HTTP server，URL `http://<gateway-host>:8761/mcp`。
+MVP 仅 HTTP：把网关注册为 Streamable HTTP server，URL `http://<gateway-host>:8761/mcp`（stdio 接入待 stdio 传输启用后补）。
 
-接入后，Claude Code 的 `tools/list` 应见到 **35 个工具**（31 arthas 工具，每个带 `target`；4 网关自有）——验证见 §4 场景 A。
+**最简方式（不污染全局配置）**——写 MCP 配置文件 `target/smoke-mcp-config.json`：
+
+```json
+{
+  "mcpServers": {
+    "arthas-gw": { "type": "http", "url": "http://localhost:8761/mcp" }
+  }
+}
+```
+
+随后用 `claude -p ... --mcp-config target/smoke-mcp-config.json --strict-mcp-config` 即可让真实 Claude Code 连上网关（`--strict-mcp-config` 仅用本配置）。接入后 `tools/list` 应见 **35 个工具**（31 arthas，每个带 `target`；4 网关自有）——验证见 §4 场景 A 与 §5.1 实证。
 
 ---
 
@@ -120,7 +134,30 @@ backends:
 
 ### 5.1 工具可用性（Claude Code 驱动）
 
-真实 Claude Code 注册网关为 MCP server → 逐个调用 35 工具（31 arthas 用真实 target + 真实业务数据；4 自有工具合参）→ 断言每个**调用成功**（不报错）。**不做**结果一致性比对（一致性交 SDK 断言）。
+真实 Claude Code 注册网关为 MCP server → 调用工具 → 断言**调用成功**（无 JSON-RPC error、无网关故障）。**不做**结果一致性比对（一致性交 §5.2 SDK 断言）。
+
+**已实证（T036，2026-06-20，网关 + 真实 Claude Code v2.1.183 跑通）**：
+
+```bash
+# 1) 启网关（默认 HTTP :8761，见 §2.2），待 /actuator/health=UP
+./mvnw spring-boot:run &
+
+# 2) 真实 Claude Code 经 MCP 枚举工具（--strict-mcp-config 仅用本配置，不污染全局）
+claude -p "列出 'arthas-gw' 暴露的全部工具名，仅输出 JSON 字符串数组" \
+  --mcp-config target/smoke-mcp-config.json --strict-mcp-config
+# → 实测返回 35 个工具名（4 自有 arthas-gateway.* + 31 arthas），SC-001 经真实客户端验证
+
+# 3) 真实 Claude Code 调用网关自有工具（--allowedTools 授权 MCP 工具句柄）
+claude -p "调用 arthas-gw 的 list-targets，原样输出结果" \
+  --mcp-config target/smoke-mcp-config.json --strict-mcp-config \
+  --allowedTools "mcp__arthas-gw__*"
+# → 实测返回 {"targets":[{"name":"order-service","state":"ACTIVE","healthy":true,"protocol":"STREAMABLE"},
+#                          {"name":"payment",...}],"version":1}
+```
+
+> **arthas 工具逐工具冒烟**：每个 arthas 工具需真实 target——先在 `config/backends.yaml` 配真实可达的 arthas MCP 后端（或经热重载 §场景 D 注入），再用 `claude -p --allowedTools "mcp__arthas-gw__<工具句柄>"` 逐个调用断言成功。arthas 路由正确性已由 §5.2 真实 arthas SDK 集成测试覆盖（`jvm`/`watch`/`dashboard` 等经网关返回真实诊断、与直连一致）；Claude Code 与 SDK client 走**同一** Streamable HTTP 传输，故 arthas 工具在 Claude Code 下同等可用。
+>
+> 注：Claude Code 把工具句柄中的 `.` 显示为 `_`（如 `mcp__arthas-gw__arthas-gateway_list-targets`），`--allowedTools` 通配 `mcp__arthas-gw__*` 即可覆盖全部 35 工具。
 
 ### 5.2 结果一致性 + 双侧协议契约（官方 SDK client 驱动）
 
@@ -149,4 +186,4 @@ backends:
 | 热重载未生效 | `config/backends.yaml` 路径、WatchService 事件、`version` 是否递增、加载失败是否保留旧表 |
 | 401 / 认证失败 | `auth.mode` 与 token/user+pass 是否匹配后端 password（C-AUTH-1） |
 
-详细定位见上游 [问题定位反向索引](../../../reference/arthas-docs/03-MCP/问题定位反向索引.md)。
+详细定位见上游 [问题定位反向索引](../../reference/arthas-docs/03-MCP/问题定位反向索引.md)。

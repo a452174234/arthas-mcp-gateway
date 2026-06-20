@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    name: 构建 + 测试（./mvnw clean verify）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: 缓存 Maven 仓库
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-
+
+      - name: 授予 mvnw 可执行权限
+        run: chmod +x ./mvnw
+
+      # 本地与 CI 同命令（宪法「CI 必须能复现本地构建」）
+      # 含 surefire（纯逻辑单测）+ failsafe（真实 arthas + 真实业务服务集成测试，零桩）
+      - name: 构建与测试
+        run: ./mvnw clean verify --batch-mode

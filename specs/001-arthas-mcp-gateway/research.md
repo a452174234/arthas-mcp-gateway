@@ -19,11 +19,11 @@
 
 | 文档 | 角色 | 关键结论 |
 |---|---|---|
-| [问题定位反向索引](../../../reference/arthas-docs/03-MCP/问题定位反向索引.md) | 症状→源码定位 | 核心包 `com.taobao.arthas.core.mcp`；MCP 协议常量在 `McpSchema.java` |
-| [MCP能力清单](../../../reference/arthas-docs/03-MCP/MCP能力清单.md) | 摘抄拷贝单一事实源 | 31 工具全量定义；resource=0、prompt=0；27 forbidden / 5 optional / 0 required |
-| [MCP线契约](../../../reference/arthas-docs/03-MCP/MCP线契约.md) | 网关↔Claude Code 服务端契约 | 协议 `2025-11-25`；initialize/tools/task/error 线格式 |
-| [后端接入契约](../../../reference/arthas-docs/03-MCP/后端接入契约.md) | 网关↔arthas 后端客户端契约 | 复用 http console `/mcp`；Bearer=后端 password；session 25min；task 并发上限 5；task TTL 30min |
-| [工具传输分类表](../../../reference/arthas-docs/03-MCP/工具传输分类表.md) | 逐工具路由速查 | 同步直发 27 / 流式 1（dashboard）/ 任务型 5（watch/trace/stack/tt/monitor） |
+| [问题定位反向索引](../../reference/arthas-docs/03-MCP/问题定位反向索引.md) | 症状→源码定位 | 核心包 `com.taobao.arthas.core.mcp`；MCP 协议常量在 `McpSchema.java` |
+| [MCP能力清单](../../reference/arthas-docs/03-MCP/MCP能力清单.md) | 摘抄拷贝单一事实源 | 31 工具全量定义；resource=0、prompt=0；27 forbidden / 5 optional / 0 required |
+| [MCP线契约](../../reference/arthas-docs/03-MCP/MCP线契约.md) | 网关↔Claude Code 服务端契约 | 协议 `2025-11-25`；initialize/tools/task/error 线格式 |
+| [后端接入契约](../../reference/arthas-docs/03-MCP/后端接入契约.md) | 网关↔arthas 后端客户端契约 | 复用 http console `/mcp`；Bearer=后端 password；session 25min；task 并发上限 5；task TTL 30min |
+| [工具传输分类表](../../reference/arthas-docs/03-MCP/工具传输分类表.md) | 逐工具路由速查 | 同步直发 27 / 流式 1（dashboard）/ 任务型 5（watch/trace/stack/tt/monitor） |
 
 这些事实直接驱动下文所有设计决策，不再重复论述。
 
@@ -87,7 +87,7 @@
 
 ## 3. `target` 参数注入与静态工具注册表（FR-008、FR-003、宪法原则二）
 
-- **Decision**：启动期构建**静态工具注册表**（31 工具，schema 逐字摘抄自 [MCP能力清单](../../../reference/arthas-docs/03-MCP/MCP能力清单.md)），每个工具在对外 inputSchema 中**额外注入顶层 `target`（string, required=true）**；运行时 `tools/call` 从 `arguments` 取出 `target` 并剥离，剩余键作为后端 `tools/call` 的 arguments；路由判定不查后端，纯靠静态表 + 注册表。
+- **Decision**：启动期构建**静态工具注册表**（31 工具，schema 逐字摘抄自 [MCP能力清单](../../reference/arthas-docs/03-MCP/MCP能力清单.md)），每个工具在对外 inputSchema 中**额外注入顶层 `target`（string, required=true）**；运行时 `tools/call` 从 `arguments` 取出 `target` 并剥离，剩余键作为后端 `tools/call` 的 arguments；路由判定不查后端，纯靠静态表 + 注册表。
 - **Rationale**：宪法原则二要求"定义来源是 arthas 源码如实摘抄、不逐后端动态发现"且"映射确定且可被发现"；`target` 作为命名空间消除歧义。保留 `additionalProperties:false`（对齐 arthas schema 恒定结构）。**target 永不透传给后端**（避免污染后端 INVALID_PARAMS）。
 - **schema 来源防错**：31 条 schema 推荐从源码生成脚本产出而非纯手抄，并由契约测试逐条比对 arthas 真实 `tools/list`（见 §5）。
 - **无命名冲突**：已核对 31 工具参数表，无 `target` 命名冲突。

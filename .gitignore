@@ -14,3 +14,33 @@ __pycache__/
 # arthas 上游源码为 clone 的第三方仓库（约 94M，含内嵌 .git），不纳入版本控制；
 # 仅提交我们产出的研究文档 reference/arthas-docs/。
 reference/arthas/
+
+# === Java / Maven ===
+target/
+build/
+*.class
+*.jar
+# 例外：arthas-boot.jar 是静态诊断工具文件（非构建产物 / 非依赖），T009 夹具与 failsafe IT 依赖之；
+# 需纳入版本控制，供 CI / 全新 clone 直接可用（不靠桩、不靠网络拉取）。
+!tools/arthas-boot.jar
+*.war
+*.ear
+*.hprof
+.gradle/
+
+# === 本地敏感配置（覆盖示例模板的本地真实值） ===
+config/backends-local.yaml
+config/backends.*.local.yaml
+
+# === IDE 元数据 ===
+.idea/
+*.iml
+.vscode/
+*.swp
+*.tmp
+
+# === 日志 / 系统杂项 ===
+*.log
+logs/
+.DS_Store
+Thumbs.db

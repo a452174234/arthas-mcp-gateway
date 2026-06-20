@@ -4,7 +4,7 @@
 **界面角色**：网关作为 **MCP 客户端**，连接并管理多个 arthas MCP 后端（每后端对应一个目标 JVM）。
 **宪法依据**：原则一、原则三（连接生命周期与局部故障韧性）、原则四。
 
-> 后端行为事实的**权威定义**见上游 [后端接入契约](../../../reference/arthas-docs/03-MCP/后端接入契约.md) 与 [工具传输分类表](../../../reference/arthas-docs/03-MCP/工具传输分类表.md)；本文聚焦**网关作为客户端的发送承诺与可测断言点**（WireMock 模拟后端）。实现用官方 SDK `HttpClientStreamableHttpTransport`，**不手写帧**。
+> 后端行为事实的**权威定义**见上游 [后端接入契约](../../reference/arthas-docs/03-MCP/后端接入契约.md) 与 [工具传输分类表](../../reference/arthas-docs/03-MCP/工具传输分类表.md)；本文聚焦**网关作为客户端的发送承诺与可测断言点**（WireMock 模拟后端）。实现用官方 SDK `HttpClientStreamableHttpTransport`，**不手写帧**。
 
 ---
 
@@ -76,7 +76,7 @@
 ## 6. 并发与会话
 
 - 每 target 独立 `BackendClient`（独立连接池 + 独立 McpClient 会话），互不阻塞（宪法原则三）。
-- 后端 session TTL 25 分钟（[后端接入契约](../../../reference/arthas-docs/03-MCP/后端接入契约.md)）；网关长连接需处理 session 过期（过期后重新 initialize）。
+- 后端 session TTL 25 分钟（[后端接入契约](../../reference/arthas-docs/03-MCP/后端接入契约.md)）；网关长连接需处理 session 过期（过期后重新 initialize）。
 - task 并发硬上限 5（后端）；网关 `Semaphore` 守护。
 
 ---

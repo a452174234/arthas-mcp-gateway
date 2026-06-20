@@ -4,7 +4,7 @@
 **界面角色**：网关作为**标准 MCP 服务端**，被 Claude Code 等 AI 客户端消费。
 **宪法依据**：原则一（MCP 规范符合性）、原则二（透明无损聚合）、原则四（双侧契约测试）。
 
-> 线格式（JSON-RPC 帧、initialize/tools/task/error 报文结构）的**权威定义**见上游 [MCP线契约](../../../reference/arthas-docs/03-MCP/MCP线契约.md)；本文不重复帧定义，聚焦**网关在此界面上的行为承诺与可测断言点**。设计决策见 [research.md](../research.md)。
+> 线格式（JSON-RPC 帧、initialize/tools/task/error 报文结构）的**权威定义**见上游 [MCP线契约](../../reference/arthas-docs/03-MCP/MCP线契约.md)；本文不重复帧定义，聚焦**网关在此界面上的行为承诺与可测断言点**。设计决策见 [research.md](../research.md)。
 
 ---
 
@@ -53,7 +53,7 @@
 
 返回 **35 个工具**的不可变快照（启动期构建，含 `target` 注入）。`nextCursor == null`。
 
-- **31 arthas 工具**：inputSchema = arthas 原始 schema **逐字拷贝** + 注入 `target`（string, required, 进顶层 `required`）；`additionalProperties:false`；`execution.taskSupport` 照实（dashboard=forbidden；watch/trace/stack/tt/monitor=optional；其余 forbidden）。schema 摘抄单一事实源：[MCP能力清单](../../../reference/arthas-docs/03-MCP/MCP能力清单.md)。
+- **31 arthas 工具**：inputSchema = arthas 原始 schema **逐字拷贝** + 注入 `target`（string, required, 进顶层 `required`）；`additionalProperties:false`；`execution.taskSupport` 照实（dashboard=forbidden；watch/trace/stack/tt/monitor=optional；其余 forbidden）。schema 摘抄单一事实源：[MCP能力清单](../../reference/arthas-docs/03-MCP/MCP能力清单.md)。
 - **4 网关自有工具**：见 `gateway-tools-contract.md`。
 
 `target` 注入示例（watch 片段）：

@@ -19,7 +19,10 @@ import java.util.function.Supplier;
  * <p><b>TTL 清理</b>：终态任务（{@code completedAt} 非空）在 {@code completedAt + ttl} 后移除；
  * WORKING 任务（{@code completedAt=null}）<b>不</b>受 TTL 影响（仍在跑的不应被回收）。两条清理路径：
  * <ul>
- *   <li><b>惰性</b>：get/list 访问时调用 {@link #cleanExpired()}，过期任务对读不可见。</li>
+ *   <li><b>单条惰性（get）</b>：{@link #get(String)} 仅判定<b>目标单条</b>是否过期——存在且未过期→返回;
+ *       过期→定向 {@code remove} 返 empty;不存在→返 empty。<b>不</b>触发全表扫描(002 整改 P2-3/FR-009:
+ *       大规模终态任务下逐条 task-get 的 O(N) 读放大)。</li>
+ *   <li><b>全表惰性（list）</b>：{@link #list()} 访问时调用 {@link #cleanExpired()} 全表清理,过期任务对读不可见。</li>
  *   <li><b>主动</b>：构造时启动守护虚拟线程周期性 {@link #cleanExpired()}（period ≈ ttl/4，至少 1min），
  *       兜底长时间不被访问的终态任务，限制内存占用。</li>
  * </ul>
@@ -60,10 +63,45 @@ public final class TaskStore {
         tasks.put(task.taskId(), task);
     }
 
-    /** 按 taskId 查询（触发惰性清理；未知或已过期返 empty）。 */
+    /**
+     * 按 taskId 移除任务（002 整改 · 提交失败清理僵尸用，P0-1/FR-001）。
+     *
+     * <p>外层 {@code pool.submit} 被拒时，执行器移除刚 {@link #put} 的 WORKING 任务，
+     * 避免其长期驻留为僵尸（永远不到达终态）。
+     */
+    public void remove(String taskId) {
+        tasks.remove(taskId);
+    }
+
+    /**
+     * 按 taskId 查询（<b>单条</b>过期判定，不触发全表清理，002 整改 P2-3/FR-009）。
+     *
+     * <p>存在且未过期→返回;过期→定向 {@code remove} 返 empty;不存在→返 empty。
+     * 全表 {@link #cleanExpired()} 仅由 {@link #list()} 与后台 cleaner 负责——避免大规模终态任务下
+     * 逐条 task-get 的 O(N) 读放大(轮询 N 任务 = O(N²))。
+     *
+     * @return 任务(存在且未过期);否则 {@link Optional#empty()}
+     */
     public Optional<GatewayTask> get(String taskId) {
-        cleanExpired();
-        return Optional.ofNullable(tasks.get(taskId));
+        GatewayTask task = tasks.get(taskId);
+        if (task == null) {
+            return Optional.empty();
+        }
+        if (isExpired(task, clock.get())) {
+            tasks.remove(taskId); // 定向移除过期单条(非全表)
+            return Optional.empty();
+        }
+        return Optional.of(task);
+    }
+
+    /**
+     * 测试探针(包级可见):不经任何清理,探测内部存储是否仍含某 taskId。
+     *
+     * <p><b>仅测试用</b>——供读放大断言验证 {@link #get(String)} 是否触发全表清理
+     * (全表清理会移除过期的兄弟任务;单条 O(1) 不会)。生产代码不应依赖。
+     */
+    boolean containsRawForTest(String taskId) {
+        return tasks.containsKey(taskId);
     }
 
     /** 全部任务（触发惰性清理；快照副本，顺序不定）。 */

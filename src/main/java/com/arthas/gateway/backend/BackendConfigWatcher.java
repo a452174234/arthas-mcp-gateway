@@ -16,6 +16,9 @@ import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 热重载文件监听器（SC-002，T039/T040）：{@link WatchService} 监听 {@code backends.yaml} 所在目录，
@@ -38,20 +41,36 @@ public final class BackendConfigWatcher implements AutoCloseable {
     private static final Duration DEBOUNCE = Duration.ofMillis(500);
     /** 监听线程 poll 间隔（兼作 close 响应粒度）。 */
     private static final Duration POLL_INTERVAL = Duration.ofMillis(200);
+    /** 容器关闭时等待退役关闭调度器的上限(让已到期任务执行完;未到期 grace 内的在关闭时不再阻塞)。 */
+    private static final Duration SHUTDOWN_AWAIT = Duration.ofSeconds(2);
 
     private final Path configFile;
     private final BackendConfigLoader loader;
     private final BackendRegistryReloader reloader;
     private final RegistryHolder holder;
     private final Duration retirementGrace;
+    /**
+     * 退役关闭调度器(可追踪,002 整改 P2-1/FR-007):替代裸 {@code Thread.startVirtualThread(sleep)} 的
+     * fire-and-forget 虚拟线程堆积。{@code close()} 时 {@code shutdown} + {@code awaitTermination} 优雅回收。
+     */
+    private final ScheduledExecutorService retireScheduler =
+            Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().factory());
 
     private WatchService watchService;
     private Thread watcherThread;
     private final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
 
-    /** 默认装配：60s 优雅下线宽限（覆盖 30s 同步调用；异步长任务在退役 target 上为接受边缘）。 */
+    /** 默认装配:60s 优雅下线宽限(覆盖 30s 同步调用;异步长任务在退役 target 上为接受边缘)。 */
     public BackendConfigWatcher(Path configFile, BackendEntryFactory factory, RegistryHolder holder) {
         this(configFile, new BackendConfigLoader(), new BackendRegistryReloader(factory), holder, Duration.ofSeconds(60));
+    }
+
+    /**
+     * 默认装配 + 显式退役宽限(002 整改 P2-1/FR-007:生产装配传 backendTimeout=11min,
+     * 保证 in-flight 异步任务在 client 关闭前完成)。
+     */
+    public BackendConfigWatcher(Path configFile, BackendEntryFactory factory, RegistryHolder holder, Duration retirementGrace) {
+        this(configFile, new BackendConfigLoader(), new BackendRegistryReloader(factory), holder, retirementGrace);
     }
 
     /** 全参构造（测试注入 loader/reloader/grace）。 */
@@ -145,24 +164,27 @@ public final class BackendConfigWatcher implements AutoCloseable {
         }
     }
 
-    /** 优雅下线：立即 markRetired（新调用不再路由），异步延迟 grace 后关 client（让 in-flight 完成）。 */
+    /**
+     * 优雅下线:立即 markRetired(新调用不再路由),延迟 grace 后关 client(让 in-flight 完成)。
+     *
+     * <p>002 整改 P2-1/FR-007:延迟关闭改由可追踪 {@link #retireScheduler} 调度(替代裸
+     * {@code Thread.startVirtualThread(sleep)} 的 fire-and-forget 虚拟线程堆积),{@code close()} 可优雅回收。
+     */
     private void retireAll(List<BackendEntry> toRetire) {
         for (BackendEntry entry : toRetire) {
             entry.markRetired();
-            Thread.startVirtualThread(() -> {
-                try {
-                    Thread.sleep(retirementGrace.toMillis());
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-                try {
-                    entry.client().close();
-                    log.debug("已关闭退役后端 client：{}", entry.config().name());
-                } catch (RuntimeException e) {
-                    log.warn("关闭退役后端 client 失败：{}", entry.config().name(), e);
-                }
-            });
+            retireScheduler.schedule(() -> closeRetiredClient(entry),
+                    retirementGrace.toMillis(), TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /** 退役后端 client 的延迟关闭(由 retireScheduler 在 grace 后触发)。 */
+    private void closeRetiredClient(BackendEntry entry) {
+        try {
+            entry.client().close();
+            log.debug("已关闭退役后端 client：{}", entry.config().name());
+        } catch (RuntimeException e) {
+            log.warn("关闭退役后端 client 失败：{}", entry.config().name(), e);
         }
     }
 
@@ -178,6 +200,17 @@ public final class BackendConfigWatcher implements AutoCloseable {
             }
             if (watcherThread != null) {
                 watcherThread.interrupt();
+            }
+            // 退役关闭调度器:shutdown 让已到期的退役关闭任务执行完;awaitTermination 有界等待(未到期 grace
+            // 内的任务在容器关闭时不再阻塞——容器停止后由 JVM/OS 回收连接)。优雅回收,不再堆积 fire-and-forget 线程。
+            retireScheduler.shutdown();
+            try {
+                if (!retireScheduler.awaitTermination(SHUTDOWN_AWAIT.toMillis(), TimeUnit.MILLISECONDS)) {
+                    retireScheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                retireScheduler.shutdownNow();
             }
         }
     }

@@ -19,11 +19,6 @@ public enum TaskSupport {
     OPTIONAL,
     REQUIRED;
 
-    /** 线值（小写），用于 MCP {@code execution.taskSupport} 序列化，与 arthas 一致。 */
-    public String wireValue() {
-        return name().toLowerCase(Locale.ROOT);
-    }
-
     /** 从 JSON 线值（如 "forbidden"）解析为枚举。 */
     public static TaskSupport fromWire(String wire) {
         if (wire == null || wire.isBlank()) {

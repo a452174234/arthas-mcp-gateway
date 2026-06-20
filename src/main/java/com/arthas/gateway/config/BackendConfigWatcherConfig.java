@@ -29,7 +29,10 @@ public class BackendConfigWatcherConfig {
     @Bean(destroyMethod = "close")
     BackendConfigWatcher backendConfigWatcher(GatewayProperties props, BackendEntryFactory factory, RegistryHolder holder) {
         Path configFile = Path.of(props.getBackendsFile());
-        BackendConfigWatcher watcher = new BackendConfigWatcher(configFile, factory, holder);
+        // 退役宽限 = backendTimeout(默认 11min,002 整改 P2-1/FR-007):保证 in-flight 异步任务(最长 11min)
+        // 在退役 target 的 client 关闭前完成,避免被切断。
+        BackendConfigWatcher watcher = new BackendConfigWatcher(configFile, factory, holder,
+                props.getTask().getBackendTimeout());
         try {
             watcher.start();
         } catch (IOException e) {

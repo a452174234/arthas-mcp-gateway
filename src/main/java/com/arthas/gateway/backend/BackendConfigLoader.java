@@ -72,15 +72,23 @@ public final class BackendConfigLoader {
         return new LoadedBackends(readVersion(root), readBackends(root));
     }
 
+    /**
+     * 严格版本号解析(002 整改 P3-4/FR-014):仅 {@link Integer}/{@link Long} 通过,
+     * <b>拒浮点</b>(修复前 {@code n.longValue()} 接受 {@code 1.0},掩盖非整数版本号,使热重载去重语义模糊)。
+     * 错误信息含原始值便于定位。
+     */
     private long readVersion(Map<String, Object> root) {
         Object raw = root.get("version");
         if (raw == null) {
             throw new BackendConfigException("backends.yaml 缺 version 字段（热重载去重所需）");
         }
-        if (raw instanceof Number n) {
-            return n.longValue();
+        if (raw instanceof Integer i) {
+            return i.longValue();
         }
-        throw new BackendConfigException("version 须为整数，实得 " + raw);
+        if (raw instanceof Long l) {
+            return l;
+        }
+        throw new BackendConfigException("version 须为整数,实得 " + describe(raw));
     }
 
     private List<BackendConfig> readBackends(Map<String, Object> root) {
@@ -135,9 +143,9 @@ public final class BackendConfigLoader {
             throw new BackendConfigException(backendName + ": auth.mode 缺失");
         }
         AuthMode mode = parseEnum(AuthMode.class, asString(a.get("mode")), backendName + ".auth.mode");
-        String token = resolvePlaceholder(asNullableString(a.get("token")));
-        String username = resolvePlaceholder(asNullableString(a.get("username")));
-        String password = resolvePlaceholder(asNullableString(a.get("password")));
+        String token = resolvePlaceholder(asString(a.get("token")));
+        String username = resolvePlaceholder(asString(a.get("username")));
+        String password = resolvePlaceholder(asString(a.get("password")));
         // BackendConfig.Auth 紧凑构造器校验 mode→凭据；此处补充 backend 名以便定位
         try {
             return new BackendConfig.Auth(mode, token, username, password);
@@ -176,15 +184,27 @@ public final class BackendConfigLoader {
         return raw == null ? null : String.valueOf(raw).trim();
     }
 
-    private static String asNullableString(Object raw) {
-        return raw == null ? null : String.valueOf(raw).trim();
+    /**
+     * 严格整数解析(002 整改 P3-4/FR-014):仅 {@link Integer}/{@link Long}(在 int 范围内)通过,
+     * <b>拒浮点</b>({@code Double}/{@code Float},修复前 {@code instanceof Number} 静默截断 {@code 5.0→5})、
+     * <b>拒超 int 范围</b>的 Long(修复前 {@code n.intValue()} 截断为负/错值),错误信息含<b>原始值</b>便于定位。
+     */
+    private static int asInt(Object raw, String field) {
+        if (raw instanceof Integer i) {
+            return i;
+        }
+        if (raw instanceof Long l) {
+            if (l < Integer.MIN_VALUE || l > Integer.MAX_VALUE) {
+                throw new BackendConfigException(field + " 须为 int 范围整数,实得（超界）" + raw);
+            }
+            return l.intValue();
+        }
+        throw new BackendConfigException(field + " 须为整数,实得 " + describe(raw));
     }
 
-    private static int asInt(Object raw, String field) {
-        if (raw instanceof Number n) {
-            return n.intValue();
-        }
-        throw new BackendConfigException(field + " 须为整数，实得 " + raw);
+    /** 描述解析失败的原始值(含类型名,便于定位 YAML 配置错误)。 */
+    private static String describe(Object raw) {
+        return raw == null ? "null" : raw + "（类型 " + raw.getClass().getSimpleName() + "）";
     }
 
     private static Map<String, Object> toStringKeyed(Map<?, ?> m) {

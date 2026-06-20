@@ -2,8 +2,6 @@ package com.arthas.gateway.obs;
 
 import com.arthas.gateway.backend.BackendEntry;
 import com.arthas.gateway.backend.BackendRegistry;
-import com.arthas.gateway.backend.BackendState;
-import com.arthas.gateway.backend.CircuitBreaker;
 import com.arthas.gateway.backend.RegistryHolder;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
@@ -45,8 +43,7 @@ public class BackendRegistryHealthIndicator implements HealthIndicator {
         int healthy = 0;
         int unhealthy = 0;
         for (BackendEntry e : reg.byName().values()) {
-            boolean isHealthy = e.state() == BackendState.ACTIVE
-                    && e.breaker().state() != CircuitBreaker.State.OPEN;
+            boolean isHealthy = e.isHealthy(); // 健康单一事实源(T027/FR-012),与 list-targets 共用同一判定
             Map<String, Object> detail = new LinkedHashMap<>();
             detail.put("state", e.state().name());
             detail.put("healthy", isHealthy);

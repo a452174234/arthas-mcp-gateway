@@ -17,8 +17,6 @@ public record TaskError(String reason, String message) {
     public static final String REASON_BACKEND_TIMEOUT = "backend_timeout";
     /** 后端不可达（连接拒绝 / initialize 失败 / 读超时 / SSE 中断）。 */
     public static final String REASON_BACKEND_UNREACHABLE = "backend_unreachable";
-    /** 熔断器 OPEN（连续失败达阈值，US3）。 */
-    public static final String REASON_CIRCUIT_OPEN = "circuit_open";
 
     public TaskError {
         Objects.requireNonNull(reason, "reason 不可为空");

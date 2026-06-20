@@ -24,8 +24,10 @@ import java.util.function.LongSupplier;
  * 读超时、SSE 中断）调用 {@link #recordFailure()}；后端业务错误（isError=true/INVALID_PARAMS）是正常响应，
  * 调用 {@link #recordSuccess()}，<b>不计入</b>熔断（对齐宪法原则五：错误显式传播）。
  *
- * <p>时钟可注入（{@link LongSupplier}，纳秒），便于无真实时间的单测。非线程安全——并发由
- * {@code BackendEntry}（T025/T047）的 taskSlots 或调用方串行化保证；MVP 单后端低并发可接受。
+ * <p><b>线程安全（002 整改 P1-1/FR-003）</b>：全部可变状态访问方法均 {@code synchronized}。
+ * 默认 {@code maxConcurrentTasks=5}（Semaphore 允许多线程并发操作熔断），"并发由槽串行化保证"的前提
+ * 不成立（评审 P1-1）；synchronized 使连续失败计数累加、OPEN/HALF_OPEN 状态转换、HALF_OPEN 仅放 1 探测
+ * 均原子一致——无丢失更新、无状态撕裂、无半开放行多探测。熔断非热路径，synchronized 开销可忽略。
  */
 public final class CircuitBreaker {
 
@@ -58,7 +60,7 @@ public final class CircuitBreaker {
         return new CircuitBreaker(nanoClock, DEFAULT_FAILURE_THRESHOLD, DEFAULT_BASE_BACKOFF, DEFAULT_MAX_BACKOFF);
     }
 
-    public State state() {
+    public synchronized State state() {
         return state;
     }
 
@@ -68,7 +70,7 @@ public final class CircuitBreaker {
      * <p>用于失效 target 结构化错误（S-ERR-5）的 {@code retryAfterMs} 字段，告知调用方何时可再试。
      * OPEN 但已满退避时返 0（下次 {@link #allowRequest()} 会转 HALF_OPEN 放探测）。
      */
-    public long retryAfterMillis() {
+    public synchronized long retryAfterMillis() {
         if (state != State.OPEN) {
             return 0L;
         }
@@ -77,7 +79,7 @@ public final class CircuitBreaker {
     }
 
     /** 是否放行请求。CLOSED→true；OPEN→满退避则转 HALF_OPEN 放 1 探测，否则 false；HALF_OPEN→false（探测在途）。 */
-    public boolean allowRequest() {
+    public synchronized boolean allowRequest() {
         return switch (state) {
             case CLOSED -> true;
             case OPEN -> {
@@ -92,7 +94,7 @@ public final class CircuitBreaker {
     }
 
     /** 记录一次成功：清连续失败计数；HALF_OPEN 探测成功→CLOSED（退避重置）。 */
-    public void recordSuccess() {
+    public synchronized void recordSuccess() {
         consecutiveFailures = 0;
         if (state == State.HALF_OPEN) {
             state = State.CLOSED;
@@ -101,7 +103,7 @@ public final class CircuitBreaker {
     }
 
     /** 记录一次基础设施失败：CLOSED 累计达阈值→OPEN；HALF_OPEN 探测失败→OPEN（退避升级）；OPEN 忽略。 */
-    public void recordFailure() {
+    public synchronized void recordFailure() {
         switch (state) {
             case CLOSED -> {
                 consecutiveFailures++;

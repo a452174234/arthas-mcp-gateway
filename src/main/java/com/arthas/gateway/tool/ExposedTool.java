@@ -31,11 +31,6 @@ public record ExposedTool(
                 inputSchema, "inputSchema 不可为空")));
     }
 
-    /** 是否为网关自有工具（不转发后端）。 */
-    public boolean gatewayOwned() {
-        return routingMode == RoutingMode.GATEWAY_LOCAL;
-    }
-
     /** 将任意 JSON 树深冻结为不可变结构（递归 Map→unmodifiable / List→unmodifiable）。 */
     @SuppressWarnings("unchecked")
     private static Map<String, Object> deepImmutable(Map<String, Object> src) {

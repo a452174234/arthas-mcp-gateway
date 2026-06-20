@@ -65,6 +65,10 @@ public record BackendConfig(
      * 后端认证（data-model.md §2 {@code auth}）。
      *
      * <p>紧凑构造器按 mode 校验凭据：BEARER 须 token；BASIC 须 username 与 password；NONE 忽略凭据。
+     *
+     * <p><b>toString 脱敏</b>(002 整改 P3-1/FR-011):覆写 record 默认 toString,<b>不</b>输出明文凭据——
+     * 仅 mode + 掩码({@code ****} + 末 2 位;凭据 ≤2 位则仅 {@code ****},避免短凭据全泄露)。
+     * 防止凭据经日志/异常栈泄漏。
      */
     public record Auth(AuthMode mode, String token, String username, String password) {
 
@@ -86,6 +90,24 @@ public record BackendConfig(
                     // 无凭据要求
                 }
             }
+        }
+
+        @Override
+        public String toString() {
+            return switch (mode) {
+                case BEARER -> "Auth[mode=BEARER, token=" + mask(token) + "]";
+                case BASIC -> "Auth[mode=BASIC, username=" + mask(username)
+                        + ", password=" + mask(password) + "]";
+                case NONE -> "Auth[mode=NONE]";
+            };
+        }
+
+        /** 凭据掩码:{@code ****} + 末 2 位;为 null 或 ≤2 位时仅 {@code ****}(不泄露任何明文片段)。 */
+        private static String mask(String secret) {
+            if (secret == null || secret.length() <= 2) {
+                return "****";
+            }
+            return "****" + secret.substring(secret.length() - 2);
         }
     }
 }

@@ -32,6 +32,9 @@ build/
 config/backends-local.yaml
 config/backends.*.local.yaml
 
+# === 运行时动态配置（SmokeDemoLauncher 每次启动按动态端口重写，不入库） ===
+config/backends-runtime.yaml
+
 # === IDE 元数据 ===
 .idea/
 *.iml

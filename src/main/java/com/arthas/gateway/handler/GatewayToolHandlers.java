@@ -2,8 +2,6 @@ package com.arthas.gateway.handler;
 
 import com.arthas.gateway.backend.BackendEntry;
 import com.arthas.gateway.backend.BackendRegistry;
-import com.arthas.gateway.backend.BackendState;
-import com.arthas.gateway.backend.CircuitBreaker;
 import com.arthas.gateway.backend.RegistryHolder;
 import com.arthas.gateway.task.AsyncTaskExecutor;
 import com.arthas.gateway.task.GatewayTask;
@@ -15,7 +13,6 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Content;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import org.springframework.stereotype.Component;
-import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -46,8 +43,6 @@ import java.util.Objects;
 @Component
 public class GatewayToolHandlers {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
-
     private final RegistryHolder registry;
     private final AsyncTaskExecutor executor;
 
@@ -76,12 +71,11 @@ public class GatewayToolHandlers {
             Map<String, Object> t = new LinkedHashMap<>();
             t.put("name", e.config().name());
             t.put("state", e.state().name());
-            t.put("healthy", e.state() == BackendState.ACTIVE
-                    && e.breaker().state() != CircuitBreaker.State.OPEN);
+            t.put("healthy", e.isHealthy()); // 健康单一事实源(T027/FR-012),委托 BackendEntry.isHealthy()
             t.put("protocol", e.config().protocol().name());
             targets.add(t);
         }
-        return json(Map.of("targets", targets, "version", reg.version()));
+        return McpJson.json(Map.of("targets", targets, "version", reg.version()));
     }
 
     // ===== task-get（G-TG-1/2/3） =====
@@ -92,7 +86,7 @@ public class GatewayToolHandlers {
                 .orElseThrow(() -> McpError.builder(McpErrorCodes.INVALID_PARAMS)
                         .message("taskId 不存在：" + taskId + "（见 task-list）")
                         .build());
-        return json(taskGetView(task));
+        return McpJson.json(taskGetView(task));
     }
 
     private static Map<String, Object> taskGetView(GatewayTask task) {
@@ -137,7 +131,7 @@ public class GatewayToolHandlers {
             }
             views.add(v);
         }
-        return json(Map.of("tasks", views));
+        return McpJson.json(Map.of("tasks", views));
     }
 
     // ===== task-cancel（G-TC-1/2） =====
@@ -149,7 +143,7 @@ public class GatewayToolHandlers {
                         .message("taskId 不存在：" + taskId)
                         .build());
         executor.cancel(task); // WORKING→CANCELLED；终态幂等（返 false，不改状态）
-        return json(Map.of("taskId", task.taskId(), "status", task.status().name().toLowerCase()));
+        return McpJson.json(Map.of("taskId", task.taskId(), "status", task.status().name().toLowerCase()));
     }
 
     // ===== 辅助 =====
@@ -196,9 +190,5 @@ public class GatewayToolHandlers {
         }
         m.put("content", content);
         return m;
-    }
-
-    private static CallToolResult json(Object node) {
-        return new CallToolResult(List.of(new TextContent(JSON.writeValueAsString(node))), false, null, null);
     }
 }

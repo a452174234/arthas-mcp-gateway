@@ -1,5 +1,6 @@
 package com.arthas.gateway.tool;
 
+import com.arthas.gateway.handler.McpJson;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
@@ -64,7 +65,7 @@ public final class StaticToolRegistry {
             if (in == null) {
                 throw new IllegalStateException("未找到 classpath 工具 schema 资源：" + resourcePath);
             }
-            ObjectMapper mapper = new ObjectMapper();
+            ObjectMapper mapper = McpJson.MAPPER; // 复用全局单例(T025/FR-013)
             Map<String, Object> root = mapper.readValue(in, new TypeReference<Map<String, Object>>() {});
             List<Map<String, Object>> specs = asList(root.get("tools"));
             List<ExposedTool> exposed = new ArrayList<>(specs.size() + 4);

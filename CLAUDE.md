@@ -59,6 +59,7 @@
 
 <!-- SPECKIT START -->
 如需了解本项目当前使用的技术、项目结构、shell 命令与其他重要信息，请阅读当前实现计划：
-`specs/001-arthas-mcp-gateway/plan.md`（特性：arthas MCP 网关）。
-配套产出：`research.md`（Phase 0 决策）、`data-model.md`、`contracts/`、`quickstart.md`。
+`specs/002-code-review-remediation/plan.md`（特性：代码评审发现修复——对 001 MVP 整库评审 15 项发现的整改，不影响对外 MCP 行为）。
+配套产出：`research.md`（Phase 0 决策）、`data-model.md`、`contracts/remediation-invariants.md`、`quickstart.md`；架构决策见 `docs/superpowers/specs/2026-06-21-code-review-remediation-design.md`。
+上一特性基线（回归对照）：`specs/001-arthas-mcp-gateway/`。
 <!-- SPECKIT END -->

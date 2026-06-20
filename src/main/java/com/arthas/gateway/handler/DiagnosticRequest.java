@@ -5,6 +5,7 @@ import com.arthas.gateway.tool.RoutingMode;
 import io.modelcontextprotocol.spec.McpError;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -25,7 +26,8 @@ import java.util.Objects;
  * <p>「toolName 命中」（S-ERR-3）由 SDK 保证——只有 {@code tools/list} 注册的工具才会路由到 handler，
  * 未注册工具名 SDK 自动返 INVALID_PARAMS，不到本类。
  *
- * <p>构造时对 {@code backendArgs} 做 {@link Map#copyOf} 防御性拷贝，外部篡改不泄漏。
+ * <p>构造时对 {@code backendArgs} 做防御性不可变拷贝({@code LinkedHashMap} + {@link Collections#unmodifiableMap},
+ * 容忍 null value、保留稳定序),外部篡改不泄漏。
  */
 public record DiagnosticRequest(
         String target,
@@ -36,7 +38,10 @@ public record DiagnosticRequest(
         Objects.requireNonNull(target, "target 不可为空");
         Objects.requireNonNull(backendArgs, "backendArgs 不可为空");
         Objects.requireNonNull(routingMode, "routingMode 不可为空");
-        backendArgs = Map.copyOf(backendArgs); // 防御性不可变拷贝
+        // 防御拷贝:LinkedHashMap 容忍 null value(MCP SDK 反序列化可选参数时可能显式传 null,如
+        // {"target":"x","timeout":null})——{@code Map.copyOf} 对 null value 抛 NPE 会误伤合法调用(002 整改 P2-2/FR-008);
+        // 包装为不可变 + 保留插入稳定序(与 stripTarget 的 LinkedHashMap 一致)。
+        backendArgs = Collections.unmodifiableMap(new LinkedHashMap<>(backendArgs));
     }
 
     /**

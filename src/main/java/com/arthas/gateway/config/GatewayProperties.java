@@ -50,6 +50,12 @@ public class GatewayProperties {
         private Duration backendTimeout = Duration.ofMinutes(11);
         /** 已完成任务可查询保留时长（TTL 清理）。 */
         private Duration resultTtl = Duration.ofHours(1);
+        /**
+         * 全局在途异步任务上限(跨 target 累计,P2-4/FR-010)。
+         * <p>{@code null}/未设 → 动态默认 = 注册表后端数 × 5(每次 submit 按当前注册表 size 计算,
+         * 后端增减随之伸缩)。显式设正值 → 固定上限(便于压测/限流调优)。
+         */
+        private Integer globalMaxInflight;
 
         public Duration getBackendTimeout() {
             return backendTimeout;
@@ -65,6 +71,14 @@ public class GatewayProperties {
 
         public void setResultTtl(Duration resultTtl) {
             this.resultTtl = resultTtl;
+        }
+
+        public Integer getGlobalMaxInflight() {
+            return globalMaxInflight;
+        }
+
+        public void setGlobalMaxInflight(Integer globalMaxInflight) {
+            this.globalMaxInflight = globalMaxInflight;
         }
     }
 }

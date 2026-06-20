@@ -1,0 +1,30 @@
+# 后端映射表（示例模板）
+# 实体定义见 data-model.md §2（BackendConfig）；解析与校验规则见 data-model.md §11
+# 逻辑名 name 即 tools/call 的 target 参数取值；配置改动由 WatchService 热重载（SC-002）
+#
+# 注意：此处为示例目标（本地回环端口，示例用）。真实测试由 Phase 2 测试夹具在动态端口拉起真实 arthas。
+# §9 实测（T009 首测 GREEN）：arthas 4.3.0 MCP 端点为根 URL（无 /mcp 后缀）。
+
+version: 1
+
+backends:
+  - name: order-service
+    url: http://127.0.0.1:8563    # 根 URL（§9：arthas MCP 端点无 /mcp 后缀）
+    protocol: STREAMABLE          # STREAMABLE | STATELESS
+    auth:
+      mode: NONE                  # NONE | BEARER | BASIC
+    connectTimeoutMs: 5000        # TCP + initialize 握手超时
+    callTimeoutMs: 30000          # 单次同步 tools/call 超时（对齐 SC-003）
+    maxConcurrentTasks: 5         # task 并发上限（后端硬约束）
+
+  - name: payment
+    url: http://127.0.0.1:8564/mcp
+    protocol: STREAMABLE
+    auth:
+      mode: BEARER
+      # token == 后端配置 password（见 reference/arthas-docs/03-MCP/后端接入契约.md §2.3）
+      # 占位用环境变量，避免明文入库
+      token: ${PAYMENT_TOKEN:change-me}
+    connectTimeoutMs: 5000
+    callTimeoutMs: 30000
+    maxConcurrentTasks: 5

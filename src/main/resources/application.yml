@@ -1,0 +1,55 @@
+# arthas MCP 网关配置
+# 实体见 data-model.md，线行为见 contracts/，决策见 research.md
+# ⚠ SDK 2.0.0 / Spring AI 2.0.0 偏离 spec 的处理见 memory sdk2-vs-spec-divergences：
+#   传输由 Spring AI starter 自动装配（非自定义 arthas-gateway.transports.*）；
+#   MVP 仅 Streamable HTTP（stdio 互斥，延后）。
+
+spring:
+  application:
+    name: arthas-mcp-gateway
+  main:
+    banner-mode: console
+
+  # === MCP 服务端（面向 Claude Code），由 Spring AI starter 自动装配 ===
+  ai:
+    mcp:
+      server:
+        enabled: true
+        name: arthas-mcp-gateway          # serverInfo.name（S-INIT-2）
+        version: 0.1.0                    # serverInfo.version
+        type: SYNC                        # 同步 server
+        protocol: STREAMABLE              # Streamable HTTP（非 SSE/STATELESS）
+        stdio: false                      # MVP 不开 stdio（与 HTTP 互斥）
+        # capabilities 不在此配置——由 GatewayMcpServerConfig#gatewayCapabilitiesCustomizer 锁定
+        # 为「仅 tools（listChanged=false）」，不声明 prompts/resources/logging/completions（S-INIT-2 / §3）。
+        # starter 默认会广播全部能力且 listChanged=true，customizer 覆盖之（customizer 在 spec.capabilities 后执行）。
+        streamable-http:
+          mcp-endpoint: /mcp              # MCP 端点路径（默认 /mcp）
+
+# === Servlet 容器（WebMVC Streamable HTTP 跑在嵌入式 Tomcat） ===
+server:
+  port: 8761
+  address: 0.0.0.0
+
+arthas-gateway:
+  # 后端映射表文件路径（BackendConfigLoader 解析、WatchService 热重载，免重启）
+  backends-file: config/backends.yaml
+  task:
+    # 后台阻塞等后端路①的兜底超时（> 后端 10min 上限）
+    backend-timeout: 11m
+    # 已完成任务可查询保留时长
+    result-ttl: 1h
+
+# 宪法原则五：Actuator 暴露网关健康与状态（运维无需读源码；唯一允许直连端点，不涉 MCP 调用）
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.arthas.gateway: INFO

@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        继承 Spring Boot 4.1.0（Spring AI 2.0.0 MCP server starter 硬依赖 spring-boot-starter-web:4.1.0）。
+        提供：生命周期、配置外化、Actuator、依赖管理（Jackson 3 / JUnit5 / AssertJ）。
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.0</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.arthas.gateway</groupId>
+    <artifactId>arthas-mcp-gateway</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <name>arthas-mcp-gateway</name>
+    <description>arthas MCP 网关：聚合多个目标 JVM 的 arthas 诊断能力，向 Claude Code 等客户端统一暴露</description>
+
+    <properties>
+        <!-- 宪法「技术与传输约束」：Java LTS，构建中锁定为 21（虚拟线程利于后台异步任务） -->
+        <java.version>21</java.version>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- 官方 MCP Java SDK GA；与 arthas 后端互通（arthas 4.3.0 锁 0.17.0，互通由 T009 真实握手实测裁决） -->
+        <mcp.version>2.0.0</mcp.version>
+        <!-- Spring AI 2.0.0 GA：提供 MCP server 自动装配（WebMVC 传输 + 工具注册） -->
+        <spring-ai.version>2.0.0</spring-ai.version>
+    </properties>
+
+    <!-- 双 BOM 锁版本：spring-ai-bom 管 spring-ai-* 与 org.springframework.ai 传输模块；mcp-bom 管 io.modelcontextprotocol.sdk 核心 -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp-bom</artifactId>
+                <version>${mcp.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!--
+            服务端（面向 Claude Code）：Spring AI MCP server starter。
+            自动装配 WebMVC Streamable HTTP 传输 + MCP server 生命周期 + 工具注册为 Spring bean。
+            传递带入 mcp-spring-webmvc(含 mcp-core) + spring-ai-mcp + spring-boot-starter-web。
+            2.0.0 jar 实测：传输类 HttpServletStreamableServerTransportProvider / StdioServerTransportProvider 均在 mcp-core。
+        -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
+
+        <!--
+            客户端（连 arthas 后端）：Spring AI MCP client starter。
+            传递带入 spring-ai-mcp → io.modelcontextprotocol.sdk:mcp（含 HttpClientStreamableHttpTransport / McpClient / McpSyncClient）。
+            注意：该 starter 的自动装配按静态属性创建单例客户端，不符合网关"动态多后端 + per-target 熔断/限流/独立连接池/认证头"
+            （spec 原则三）的需求——BackendClient（T024）将排除其自动装配、用其传输类手搓 per-target 客户端。
+        -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-client</artifactId>
+        </dependency>
+
+        <!-- 宪法原则五：可观测性（健康检查 / metrics），Actuator 端点不涉 MCP 调用 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- 配置外化元数据（@ConfigurationProperties） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- ===== 测试（真实环境、零桩；JUnit5 + AssertJ 由 spring-boot-starter-test 管理） ===== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 官方 MCP 测试脚手架（契约/一致性辅助） -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            arthas-boot.jar 不作为本工程依赖（用户约束 2026-06-20：本工程不依赖 arthas——
+            既不入 pom 依赖，也不依赖 reference/arthas 源码构建）。
+            arthas-boot.jar 作为可执行 fat jar（静态工具文件）置于 tools/arthas-boot.jar，
+            T009 ArthasMcpBackend 经 `java -jar` 使用（详见 docs/superpowers/specs/2026-06-20-arthas-test-fixture-design.md §5）。
+        -->
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 编译：锁定 release 21，保留参数名 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>21</release>
+                    <parameters>true</parameters>
+                </configuration>
+            </plugin>
+
+            <!-- 质量门禁：强制 Java 21 + Maven 版本（宪法「构建中锁定」+「CI 复现本地构建」） -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-build-prerequisites</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[21,22)</version>
+                                </requireJavaVersion>
+                                <requireMavenVersion>
+                                    <version>[3.9.0,)</version>
+                                </requireMavenVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- 单元测试：src/test 下 *Test.java（纯逻辑/状态机/解析单测，非真实后端） -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/*IT.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- 集成测试：*IT.java 绑定到 integration-test/verify 阶段（真实 arthas + 真实业务服务） -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Spring Boot 打包（可执行 jar，支持 stdio / HTTP 双传输运行） -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

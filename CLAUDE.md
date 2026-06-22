@@ -59,7 +59,7 @@
 
 <!-- SPECKIT START -->
 如需了解本项目当前使用的技术、项目结构、shell 命令与其他重要信息，请阅读当前实现计划：
-`specs/002-code-review-remediation/plan.md`（特性：代码评审发现修复——对 001 MVP 整库评审 15 项发现的整改，不影响对外 MCP 行为）。
-配套产出：`research.md`（Phase 0 决策）、`data-model.md`、`contracts/remediation-invariants.md`、`quickstart.md`；架构决策见 `docs/superpowers/specs/2026-06-21-code-review-remediation-design.md`。
-上一特性基线（回归对照）：`specs/001-arthas-mcp-gateway/`。
+`specs/003-k8s-arthas-mcp-launch/plan.md`（特性：K8S 目标 arthas MCP 启动与纳管——对指定 K8S pod 幂等拉起 arthas MCP + NodePort 暴露 + 动态纳管 + 经网关诊断；单 Maven 模块 + 包级边界，新增 `orchestration` 包与 3 个编排 MCP 工具）。
+配套产出：`research.md`（Phase 0 决策 R1–R8）、`data-model.md`（增量）、`contracts/k8s-orchestration-tools-contract.md` + `contracts/dynamic-registration-invariants.md`、`quickstart.md`；架构决策见 `docs/superpowers/specs/2026-06-22-k8s-arthas-mcp-launch-design.md`。
+上一特性基线（回归对照）：`specs/002-code-review-remediation/`（更早 `specs/001-arthas-mcp-gateway/`）。
 <!-- SPECKIT END -->

@@ -4,6 +4,13 @@
 #
 # 注意：此处为示例目标（本地回环端口，示例用）。真实测试由 Phase 2 测试夹具在动态端口拉起真实 arthas。
 # §9 实测（T009 首测 GREEN）：arthas 4.3.0 MCP 端点为根 URL（无 /mcp 后缀）。
+#
+# 003 特性（动态纳管）：可选字段 source 标记后端来源。
+#   - source: STATIC   源自此 YAML 种子，受热重载增删（缺省值，不写即 STATIC，向后兼容）
+#   - source: DYNAMIC  源自程序化注册（k8s.ensure-arthas-mcp 触发），不写回本文件、不受 YAML 热重载增删
+# 动态注册的 target 与静态种子共同经 RegistryComposer 合并进 effective 注册表（见
+# specs/003-k8s-arthas-mcp-launch/contracts/dynamic-registration-invariants.md）。
+# 下列示例种子均为 STATIC，无需显式标注（缺省即 STATIC，零改动可用）。
 
 version: 1
 

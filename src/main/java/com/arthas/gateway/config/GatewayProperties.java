@@ -28,6 +28,9 @@ public class GatewayProperties {
     /** 应用层异步任务（方案 C）默认值。 */
     private Task task = new Task();
 
+    /** K8S 编排子段（003 特性：k8s.list-* / k8s.ensure-arthas-mcp 工具的集群连接与供给参数）。 */
+    private K8s k8s = new K8s();
+
     public String getBackendsFile() {
         return backendsFile;
     }
@@ -42,6 +45,14 @@ public class GatewayProperties {
 
     public void setTask(Task task) {
         this.task = task;
+    }
+
+    public K8s getK8s() {
+        return k8s;
+    }
+
+    public void setK8s(K8s k8s) {
+        this.k8s = k8s;
     }
 
     /** 异步任务默认值（方案 C，详见 research.md §4）。 */
@@ -79,6 +90,132 @@ public class GatewayProperties {
 
         public void setGlobalMaxInflight(Integer globalMaxInflight) {
             this.globalMaxInflight = globalMaxInflight;
+        }
+    }
+
+    /**
+     * K8S 编排子段（003 特性，{@code arthas-gateway.k8s.*}）。
+     *
+     * <p>承载 {@code k8s.list-*} / {@code k8s.ensure-arthas-mcp} 工具连接测试集群（debian 上 k3s）
+     * 与供给（arthas 注入 + NodePort 暴露）所需的参数。kubeconfig 指向 root-on-node 派生的 admin 凭证
+     * （见 [K8S 测试环境设计](../../docs/superpowers/specs/2026-06-23-k8s-test-env-setup-design.md)）。
+     * 决策见 [research.md R2/R3](../specs/003-k8s-arthas-mcp-launch/research.md)。
+     */
+    public static class K8s {
+
+        /** kubeconfig 文件路径（集群外运行网关时远程连 k3s API）。缺省指向测试床导出凭证。 */
+        private String kubeconfig = "test-env/k8s/kubeconfig/k3s-admin.yaml";
+
+        /** kubeconfig 内使用的 context（null/缺省取 kubeconfig current-context）。 */
+        private String context;
+
+        /** 默认 namespace（list-* / ensure 缺省 namespace 时）。 */
+        private String namespace = "default";
+
+        /** NodePort 分配范围（K8S 默认 30000–32767）。ensure 建 NodePort Service 时由集群在此范围自动分配。 */
+        private String nodePortRange = "30000-32767";
+
+        /** ensure 全流程超时（注入 + 暴露 + 健康检查 + 注册）。须 > arthas attach + 健康轮询时间。 */
+        private Duration ensureTimeout = Duration.ofMinutes(5);
+
+        /** ensure 启动 arthas MCP 的绑定 IP（research.md R4：0.0.0.0 产出 wildcard、NodePort 可达；127.0.0.1 不可达）。 */
+        private String targetIp = "0.0.0.0";
+
+        /** arthas-boot.jar 静态工具文件路径（memory arthas-no-dependency：不入 pom、ensure 时上传进 pod）。 */
+        private String arthasBootJar = "tools/arthas-boot.jar";
+
+        /** ensure 注入的 arthas MCP 在 pod 内监听端口（NodePort targetPort）。 */
+        private int mcpPort = 8563;
+
+        /** 锁定的 arthas 版本（设计 §5：--use-version 4.3.0）。 */
+        private String arthasVersion = "4.3.0";
+
+        /**
+         * arthas MCP HTTP 服务的访问密码（003 实测发现：arthas 绑 0.0.0.0 暴露外部时强制鉴权，
+         * 不配则自动生成随机密码且外部访问 401）。ensure 经 {@code --password} 下发已知值，
+         * 并以 Bearer 令牌形态注入动态后端 {@code Auth}，使网关与健康检查均可鉴权访问。缺省为测试床占位值，
+         * 生产应显式覆盖（{@code arthas-gateway.k8s.arthas-password}）。
+         */
+        private String arthasPassword = "arthas-mcp-gateway";
+
+        public String getKubeconfig() {
+            return kubeconfig;
+        }
+
+        public void setKubeconfig(String kubeconfig) {
+            this.kubeconfig = kubeconfig;
+        }
+
+        public String getContext() {
+            return context;
+        }
+
+        public void setContext(String context) {
+            this.context = context;
+        }
+
+        public String getNamespace() {
+            return namespace;
+        }
+
+        public void setNamespace(String namespace) {
+            this.namespace = namespace;
+        }
+
+        public String getNodePortRange() {
+            return nodePortRange;
+        }
+
+        public void setNodePortRange(String nodePortRange) {
+            this.nodePortRange = nodePortRange;
+        }
+
+        public Duration getEnsureTimeout() {
+            return ensureTimeout;
+        }
+
+        public void setEnsureTimeout(Duration ensureTimeout) {
+            this.ensureTimeout = ensureTimeout;
+        }
+
+        public String getTargetIp() {
+            return targetIp;
+        }
+
+        public void setTargetIp(String targetIp) {
+            this.targetIp = targetIp;
+        }
+
+        public String getArthasBootJar() {
+            return arthasBootJar;
+        }
+
+        public void setArthasBootJar(String arthasBootJar) {
+            this.arthasBootJar = arthasBootJar;
+        }
+
+        public int getMcpPort() {
+            return mcpPort;
+        }
+
+        public void setMcpPort(int mcpPort) {
+            this.mcpPort = mcpPort;
+        }
+
+        public String getArthasVersion() {
+            return arthasVersion;
+        }
+
+        public void setArthasVersion(String arthasVersion) {
+            this.arthasVersion = arthasVersion;
+        }
+
+        public String getArthasPassword() {
+            return arthasPassword;
+        }
+
+        public void setArthasPassword(String arthasPassword) {
+            this.arthasPassword = arthasPassword;
         }
     }
 }

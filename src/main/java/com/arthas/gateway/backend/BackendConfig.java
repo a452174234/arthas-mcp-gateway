@@ -11,6 +11,12 @@ import java.util.Objects;
  * protocol/auth 非空、超时为正、{@code maxConcurrentTasks} ∈ [1,5]（后端硬上限）。
  * 跨实例校验（name 唯一）由 {@link BackendConfigLoader} 负责。
  * 任意失败抛 {@link BackendConfigException}，以便热重载保留旧表（data-model.md §11 规则 7）。
+ *
+ * <p><b>{@code source} 来源标记</b>（003 动态纳管增量，data-model §2/§3）：
+ * 最后一个组件，缺省 {@link Source#STATIC}。{@link #source()} 参与 {@code list-targets} 可观测
+ * （区分静态种子 / 动态注册），但<b>不</b>参与 {@link #equals(Object)}/{@link #hashCode()} 的
+ * 复用判定核心（data-model §2：同 name/url/auth/超时/并发、异 source 仍视为同一配置，
+ * 以保连接池复用语义稳定）。{@code equals}/{@code hashCode} 显式覆写为排除 source 的 7 字段实现。
  */
 public record BackendConfig(
         String name,
@@ -19,7 +25,8 @@ public record BackendConfig(
         Auth auth,
         int connectTimeoutMs,
         int callTimeoutMs,
-        int maxConcurrentTasks) {
+        int maxConcurrentTasks,
+        Source source) {
 
     public BackendConfig {
         if (name == null || name.isBlank()) {
@@ -38,6 +45,52 @@ public record BackendConfig(
             throw new BackendConfigException(
                     name + ": maxConcurrentTasks 须 ∈ [1,5]（后端硬上限），实得 " + maxConcurrentTasks);
         }
+        // source 缺省 STATIC（向后兼容：YAML 不写 source 视为 STATIC；既有 7 参调用点零改动）。
+        if (source == null) {
+            source = Source.STATIC;
+        }
+    }
+
+    /**
+     * 向后兼容构造器（不含 source）—— {@code source} 缺省 {@link Source#STATIC}。
+     *
+     * <p>保留 001 既有 7 参调用点（{@code BackendConfigLoader} 及各测试）零改动通过。
+     */
+    public BackendConfig(String name, String url, Protocol protocol, Auth auth,
+                         int connectTimeoutMs, int callTimeoutMs, int maxConcurrentTasks) {
+        this(name, url, protocol, auth, connectTimeoutMs, callTimeoutMs, maxConcurrentTasks, Source.STATIC);
+    }
+
+    /**
+     * 复用判定 equals（data-model §2：排除 {@code source}）。
+     *
+     * <p>仅比较 7 个复用核心字段（name/url/protocol/auth/超时/并发）。{@code source} 为可观测标记，
+     * 不影响"是否同一可复用后端"——故同核心字段、异 source 仍 equal（保连接池复用语义）。
+     * 与 {@link #hashCode()} 协同（同字段集）。
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof BackendConfig that)) {
+            return false;
+        }
+        return connectTimeoutMs == that.connectTimeoutMs
+                && callTimeoutMs == that.callTimeoutMs
+                && maxConcurrentTasks == that.maxConcurrentTasks
+                && Objects.equals(name, that.name)
+                && Objects.equals(url, that.url)
+                && protocol == that.protocol
+                && Objects.equals(auth, that.auth);
+    }
+
+    /**
+     * 复用判定 hashCode（与 {@link #equals(Object)} 协同，排除 {@code source}）。
+     */
+    @Override
+    public int hashCode() {
+        return Objects.hash(name, url, protocol, auth, connectTimeoutMs, callTimeoutMs, maxConcurrentTasks);
     }
 
     /** 校验 url 为合法 http(s) 且含 host（data-model.md §2：形如 {@code http://host:8563/mcp}）。 */

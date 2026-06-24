@@ -1,8 +1,8 @@
 # Arthas MCP 网关
 
-> 聚合多个目标 JVM 的 [arthas](https://arthas.aliyun.com/) 诊断能力，向 [Claude Code](https://docs.claude.com/en/docs/claude-code) 等 MCP 客户端统一暴露为单一 MCP 服务（35 个工具）。
+> 聚合多个目标 JVM 的 [arthas](https://arthas.aliyun.com/) 诊断能力，向 [Claude Code](https://docs.claude.com/en/docs/claude-code) 等 MCP 客户端统一暴露为单一 MCP 服务（38 个工具）。
 
-**Feature**: `001-arthas-mcp-gateway` | **版本**: 0.1.0-SNAPSHOT | **语言/文档**: 中文（技术名词保留英文）
+**Feature**: `001-arthas-mcp-gateway`（基础：35 工具诊断聚合）+ `003-k8s-arthas-mcp-launch`（K8S 编排：+3 工具，对指定 pod 一键拉起 arthas MCP + 暴露 + 动态纳管） | **版本**: 0.1.0-SNAPSHOT | **语言/文档**: 中文（技术名词保留英文）
 
 ---
 
@@ -17,6 +17,7 @@ arthas 是 Java 生态最强的在线诊断工具，但每个目标 JVM 各起�
 - **异步长任务**：5 个长耗时工具（`watch`/`trace`/`stack`/`tt`/`monitor`）后台化，立即返回 `taskId`，经 `task-get/list/cancel` 跟踪。
 - **故障隔离**：单后端故障不影响其他目标；熔断 + per-target 限流 + 30s 内明确错误。
 - **热重载**：改 `config/backends.yaml` 免重启增删目标。
+- **K8S 编排**（003）：对指定 K8S pod 一键拉起 arthas MCP（上传 arthas + 启动 + NodePort 暴露 + 动态纳管 + 健康检查），诊断结果明确来自该 pod JVM（[SC-001](./specs/003-k8s-arthas-mcp-launch/spec.md)）。
 
 > **不依赖 arthas 工程源码**：`arthas-boot.jar` 作为静态工具文件置于 `tools/`，经 `java -jar` 使用；不入 Maven 依赖、不构建 reference 源码。
 
@@ -87,14 +88,14 @@ MVP 为 HTTP server，写一份 MCP 配置（不污染全局）：
 ```bash
 claude -p "列出 arthas-gw 暴露的全部工具名，仅输出 JSON 数组" \
   --mcp-config target/smoke-mcp-config.json --strict-mcp-config
-# → 35 个工具名（4 自有 arthas-gateway.* + 31 arthas，每个 arthas 工具带 target 参数）
+# → 38 个工具名（4 自有 arthas-gateway.* + 31 arthas + 3 K8S 编排 k8s.*；每个 arthas 工具带 target 参数）
 ```
 
-> Claude Code 把工具句柄中的 `.` 显示为 `_`；`--allowedTools "mcp__arthas-gw__*"` 通配可覆盖全部 35 工具。
+> Claude Code 把工具句柄中的 `.` 显示为 `_`；`--allowedTools "mcp__arthas-gw__*"` 通配可覆盖全部 38 工具。
 
 ---
 
-## 工具集（35）
+## 工具集（38 = 35 既有 + 3 K8S 编排）
 
 | 类别 | 数量 | 路由模式 | 示例 |
 |---|---|---|---|
@@ -102,8 +103,9 @@ claude -p "列出 arthas-gw 暴露的全部工具名，仅输出 JSON 数组" \
 | 长任务（异步） | 5 | `ASYNC_TASK` | `watch`/`trace`/`stack`/`tt`/`monitor`（立即返 `taskId`） |
 | 聚合（同步多帧） | 1 | `STREAM_AGGREGATE` | `dashboard` |
 | 网关自有 | 4 | `GATEWAY_LOCAL` | `list-targets`/`task-get`/`task-list`/`task-cancel` |
+| K8S 编排（003） | 3 | `GATEWAY_LOCAL` | `k8s.list-pods`/`k8s.list-services`/`k8s.ensure-arthas-mcp`（自带闭包、不经路由器、无 `target` 参数） |
 
-工具静态来自 `src/main/resources/arthas-tools.json`（35 工具，**不随后端数变化**，SC-001）。
+工具静态来自 `src/main/resources/arthas-tools.json`（31 arthas + 4 网关自有 = 35，**不随后端数变化**）；3 个 K8S 编排工具由 `K8sToolRegistry` 程序化注册。诊断类工具带必填 `target` 参数；K8S 编排工具无 `target`（目标由 `server`/`pod` 参数指定）。
 
 ---
 
@@ -120,7 +122,9 @@ claude -p "列出 arthas-gw 暴露的全部工具名，仅输出 JSON 数组" \
 - **工具可用性**：真实 Claude Code 走 MCP（逐工具冒烟，仅验"调通"）。
 - **结果一致性 + 双侧协议契约**：官方 MCP Java SDK client（确定性断言）。
 
-端到端验证场景（A–F）与逐工具冒烟见 [Quickstart](./specs/001-arthas-mcp-gateway/quickstart.md)。
+K8S 编排（003）的真实供给契约测试（`K8sListToolsContractIT`/`ArthasProvisionerIT`/`K8sEnsureContractIT`）在 `test-env/k8s/` 一键幂等起的真实 k3s 集群（debian 服务器）上跑——CI 默认 Assume 跳过、本地手跑；见 [003 Quickstart](./specs/003-k8s-arthas-mcp-launch/quickstart.md)。
+
+端到端验证场景（A–F）与逐工具冒烟见 [001 Quickstart](./specs/001-arthas-mcp-gateway/quickstart.md)。
 
 ---
 
@@ -140,11 +144,14 @@ src/main/java/com/arthas/gateway/
 ├── handler/                       # ToolsCallRouter（路由）+ GatewayToolHandlers（自有工具）
 ├── task/                          # 异步任务执行器 + TaskStore（内存）
 ├── tool/                          # 工具注册表 + 路由模式
-├── config/                        # Spring 装配 + 热重载监听 + Bootstrap
+├── config/                        # Spring 装配 + 热重载监听 + Bootstrap + K8sProperties
+├── orchestration/                 # K8S 编排（003）：K8sClientFactory/PodExplorer/NodePortExposer/ArthasProvisioner/ToolHandlers（gateway-core 零 K8S 依赖，编排层独立）
 ├── auth/                          # 后端认证头注入 + 网关侧认证占位（MVP Noop）
 └── obs/                           # Actuator 健康指标
 specs/001-arthas-mcp-gateway/      # 规格（plan/research/data-model/contracts/quickstart/tasks）
-tools/                             # arthas-boot.jar（静态工具文件）
+specs/003-k8s-arthas-mcp-launch/   # 003 规格（K8S 编排：plan/research/data-model/contracts/quickstart/tasks）
+test-env/k8s/                      # K8S 真实测试床（setup/teardown/Dockerfile.demo/kubeconfig——凭证 gitignored）
+tools/                             # arthas-boot.jar（静态工具文件，ensure 时经 fabric8 上传到目标 pod）
 ```
 
 ---

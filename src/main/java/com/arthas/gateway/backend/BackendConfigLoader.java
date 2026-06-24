@@ -127,8 +127,13 @@ public final class BackendConfigLoader {
                 ? asInt(b.get("callTimeoutMs"), "callTimeoutMs") : DEFAULT_CALL_TIMEOUT_MS;
         int maxConcurrentTasks = b.containsKey("maxConcurrentTasks")
                 ? asInt(b.get("maxConcurrentTasks"), "maxConcurrentTasks") : DEFAULT_MAX_CONCURRENT_TASKS;
+        // source 解析（003 增量，data-model §2/§3）：YAML 缺省 STATIC；显式 STATIC/DYNAMIC 直读。
+        // 常态下动态 target 不经 YAML（由 DynamicBackendStore.register 强制 DYNAMIC），但 loader 仍须能解析显式值。
+        Source source = b.containsKey("source")
+                ? parseEnum(Source.class, asString(b.get("source")), name + ".source")
+                : Source.STATIC;
 
-        return new BackendConfig(name, url, protocol, auth, connectTimeoutMs, callTimeoutMs, maxConcurrentTasks);
+        return new BackendConfig(name, url, protocol, auth, connectTimeoutMs, callTimeoutMs, maxConcurrentTasks, source);
     }
 
     private BackendConfig.Auth readAuth(Object raw, String backendName) {

@@ -1,0 +1,30 @@
+# demo-pod.yaml —— 003 测试床 demo 业务 pod 清单（单 pod，含 shell+java+JVM）。
+# 设计依据：docs/superpowers/specs/2026-06-23-k8s-test-env-setup-design.md §五。
+#
+# - 镜像 arthas-gateway/demo-business:local（debian 上 docker build + k3s ctr import；imagePullPolicy: Never 不 pull）。
+# - namespace=default（身份=root-admin，无 RBAC 隔离需求，最简）。
+# - ensure 另打唯一 label arthas-mcp-gateway/target=<logicalName>（design §4.1）；此处仅业务 label app。
+# - 无 Service：ensure 才建 NodePort Service（暴露 arthas MCP 端口）；业务 8081 仅容器内探针用。
+# - hot-loop 自驱动诊断事件，无需外部触发 watch/trace。
+apiVersion: v1
+kind: Pod
+metadata:
+  name: demo-business
+  namespace: default
+  labels:
+    app: demo-business
+spec:
+  containers:
+    - name: app
+      image: arthas-gateway/demo-business:local
+      imagePullPolicy: Never
+      resources:
+        requests: { cpu: 200m, memory: 384Mi }
+        limits:   { cpu: 1000m, memory: 1Gi }
+      readinessProbe:
+        httpGet: { path: /actuator/health, port: 8081 }
+        periodSeconds: 5
+      livenessProbe:
+        httpGet: { path: /actuator/health, port: 8081 }
+        periodSeconds: 10
+  restartPolicy: Always

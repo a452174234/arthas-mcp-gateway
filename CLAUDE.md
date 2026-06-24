@@ -12,13 +12,13 @@
 
 - **设计阶段走 SuperPower 头脑风暴。** 任何涉及“方案设计 / 技术调研 / 报告撰写 / 选型”的工作，动手之前**必须**先调用 `superpowers:brainstorming` 与用户充分沟通，产出归档于 `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`。未完成需求沟通，不得直接进入产出。
 - **代码实施走 spec-kit SDD。** 功能代码落地**必须**通过 spec-kit 的 SDD 流程（`/speckit-implement`，以 `specs/<feature>/tasks.md` 为权威任务清单、**测试任务先于实现任务**推进），**不得**改用 SuperPower 的实施类技能。TDD 红-绿-重构（宪法原则七）由 spec-kit SDD 的「测试先于实现」落地——先写失败测试（红），再实现至通过（绿），再重构；不得“先写实现、后补测试”。
-- **设计与实施时必须参考 SuperPower 设计文档**：`docs/superpowers/specs/`。当前为 [真实 arthas 测试夹具设计](docs/superpowers/specs/2026-06-20-arthas-test-fixture-design.md)——arthas-boot.jar 纯 Java attach 路径、单后端优先/集群整体后置作用域、Wave A（纯逻辑）→ B（真实夹具）→ C（真实路由）实现波次。
+- **设计与实施时必须参考 SuperPower 设计文档**：`docs/superpowers/specs/`。
 
 ### SuperPower 技能白名单（仅以下允许，其余一律禁用）
 
-`using-superpowers` 是技能发现基建（其“凡事皆用技能”的推力被本白名单约束），工作流技能**仅允许** `superpowers:brainstorming`（设计阶段）。以下 SuperPower 技能**禁用**，不得调用：
+`using-superpowers` 是技能发现基建（其“凡事皆用技能”的推力被本白名单约束），工作流技能**仅允许** `superpowers:brainstorming`（设计阶段）`superpowers:test-driven-development`(代码实施阶段)。以下 SuperPower 技能**禁用**，不得调用：
 
-- **实施生命周期类**（与 spec-kit SDD 冲突）：`writing-plans`、`executing-plans`、`subagent-driven-development`、`dispatching-parallel-agents`、`test-driven-development`（注：TDD 纪律本身**保留**，仅不由该技能驱动，而由 spec-kit SDD「测试先于实现」落地）。
+- **实施生命周期类**（与 spec-kit SDD 冲突）：`writing-plans`、`executing-plans`、`subagent-driven-development`、`dispatching-parallel-agents`。
 - **Git/分支生命周期类**（git 由用户手动管控、完成由 spec-kit 收尾）：`using-git-worktrees`、`finishing-a-development-branch`。
 - **代码评审流**（不在本项目范围）：`requesting-code-review`、`receiving-code-review`。
 - **质量纪律类**（精神已由本文件「证据驱动，禁止臆测 / 透明记录 / 同一问题连续失败 3 次暂停」覆盖，无需再借技能）：`systematic-debugging`、`verification-before-completion`。

@@ -1,0 +1,36 @@
+# === Docker 构建上下文排除（003 测试床 demo 业务镜像） ===
+# Dockerfile.demo 仅需 target/test-classes 下 3 个运行时夹具类；其余一律排除以缩小上下文。
+
+# Git / spec / 文档（与镜像无关）
+.git/
+.gitignore
+specs/
+docs/
+reference/
+.claude/
+.specify/
+
+# Maven 构建产物中**非夹具类**部分（setup.sh 在 debian 上只组 3 个夹具类进 context，此处兜底排除）
+target/classes/
+target/maven-*
+
+# 依赖 / 工具
+.mvn/
+mvnw
+mvnw.cmd
+tools/
+
+# 配置 / 凭证（绝不进镜像）
+config/
+test-env/
+.mcp.json
+
+# IDE / 系统 / 日志
+.idea/
+.vscode/
+*.iml
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db

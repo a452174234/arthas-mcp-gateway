@@ -39,6 +39,18 @@ arthas-gateway:
     backend-timeout: 11m
     # 已完成任务可查询保留时长
     result-ttl: 1h
+  # K8S 编排子段（003 特性：k8s.list-* / k8s.ensure-arthas-mcp 工具连测试集群 + 供给参数）
+  # 决策见 specs/003-k8s-arthas-mcp-launch/research.md R2/R3
+  k8s:
+    # kubeconfig：root-on-node 派生的 admin 凭证（test-env/k8s/setup.sh 导出，gitignore）
+    kubeconfig: test-env/k8s/kubeconfig/k3s-admin.yaml
+    # context：null/缺省取 kubeconfig current-context
+    # context:
+    namespace: default
+    # NodePort 自动分配范围（K8S 默认 30000–32767）
+    node-port-range: 30000-32767
+    # ensure 全流程超时（注入 + 暴露 + 健康检查 + 注册），须 > arthas attach + 健康轮询
+    ensure-timeout: 5m
 
 # 宪法原则五：Actuator 暴露网关健康与状态（运维无需读源码；唯一允许直连端点，不涉 MCP 调用）
 management:

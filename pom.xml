@@ -81,6 +81,33 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!--
+            K8S 编排客户端（003 特性，research.md R2）：io.fabric8:kubernetes-client。
+            list pods/services、exec 进 pod、create NodePort Service 全走 fluent Java API，
+            不 shell-out kubectl 二进制（宪法原则六「K8S 仅辅助、核心逻辑 Java」）。
+            显式声明 7.6.1（2026-03 稳定版，Java 21 兼容），保证可复现构建（不进 BOM，需手动锁版本）。
+            仅 orchestration 包依赖，gateway-core 包零 K8S 依赖（包级边界，ArchUnit 守护，T030）。
+        -->
+        <dependency>
+            <groupId>io.fabric8</groupId>
+            <artifactId>kubernetes-client</artifactId>
+            <version>7.6.1</version>
+        </dependency>
+        <!--
+            fabric8 文件上传运行时依赖（003 特性，T028 实测裁决）：
+            ArthasProvisioner.installArthas 经 `.file().upload()` 上传 arthas-boot.jar 进 pod，
+            fabric8 PodUpload 用 commons-compress 的 TarArchiveOutputStream/TarArchiveEntry 打 tar 流
+            （javap 字节码铁证）。fabric8 将 commons-compress 声明为 optional（kubernetes-client-project
+            pom：commons-compress.version=1.28.0）→ 不传递，spring-boot uber jar 重打包会缺失 →
+            运行时 NoClassDefFoundError，K8S 纳管 ensure 失败于 install_arthas。显式声明（与 fabric8 7.6.1
+            同版本）使其进 BOOT-INF/lib。仅 orchestration 包间接使用（gateway-core 零依赖，T030 守护）。
+        -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>1.28.0</version>
+        </dependency>
+
         <!-- 配置外化元数据（@ConfigurationProperties） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -98,6 +125,14 @@
         <dependency>
             <groupId>io.modelcontextprotocol.sdk</groupId>
             <artifactId>mcp-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- ArchUnit 包级边界守护（T030：gateway-core 诊断核心零 K8S 依赖，research.md R1/R6；
+             test-scope 轻量依赖，仅静态分析主代码包结构，不涉运行时 / 不引新构建工具链） -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>1.3.0</version>
             <scope>test</scope>
         </dependency>
 

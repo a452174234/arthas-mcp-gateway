@@ -14,6 +14,12 @@ __pycache__/
 # arthas 上游源码为 clone 的第三方仓库（约 94M，含内嵌 .git），不纳入版本控制；
 # 仅提交我们产出的研究文档 reference/arthas-docs/。
 reference/arthas/
+# k3s 离线资源：大二进制不入库（~250MB），由 reference/k3s/fetch.sh 按需预置（003 测试床）
+reference/k3s/k3s
+reference/k3s/k3s-airgap-images-amd64.tar.gz
+
+# === K8S 测试床凭证（cluster-admin，敏感，仅本机受控内网用） ===
+test-env/k8s/kubeconfig/
 
 # === Java / Maven ===
 target/

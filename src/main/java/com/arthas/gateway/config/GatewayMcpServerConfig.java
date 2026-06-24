@@ -1,6 +1,9 @@
 package com.arthas.gateway.config;
 
+import com.arthas.gateway.handler.McpErrorCodes;
 import com.arthas.gateway.handler.ToolsCallRouter;
+import com.arthas.gateway.orchestration.K8sToolHandlers;
+import com.arthas.gateway.orchestration.K8sToolRegistry;
 import com.arthas.gateway.tool.ExposedTool;
 import com.arthas.gateway.tool.StaticToolRegistry;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
@@ -9,7 +12,9 @@ import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpError;
 import org.springframework.ai.mcp.customizer.McpSyncServerCustomizer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -53,14 +58,27 @@ public class GatewayMcpServerConfig {
     }
 
     /**
-     * 35 个 MCP 工具规格：每个 {@link ExposedTool} 转 {@link Tool}（name/description/inputSchema 逐字），
-     * handler 全部委托 {@link ToolsCallRouter#route}（传输无关，stdio/HTTP 两路共用同一 handler）。
+     * 38 个 MCP 工具规格 = 35 arthas/网关工具 + 3 K8S 编排工具（003 特性，契约 §1/§2/§3，R6）。
+     *
+     * <ul>
+     *   <li>35 个静态工具：每个 {@link ExposedTool} 转 {@link Tool}（name/description/inputSchema 逐字），
+     *       handler 委托 {@link ToolsCallRouter#route}（经 gateway-core 路由，传输无关）。</li>
+     *   <li>3 个编排工具（{@link K8sToolRegistry#tools()}）：规格始终注册（{@code tools/list}=38 与 kubeconfig
+     *       <b>无关</b>，回归守护 T029），handler 自带闭包、<b>不经 {@code ToolsCallRouter}</b>——直接调
+     *       {@link K8sToolHandlers#handle}（gateway-core 路由零 K8S 感知，R6）。</li>
+     * </ul>
+     *
+     * <p><b>编排 handler 条件装配</b>：{@link K8sToolHandlers} bean 仅在 kubeconfig 存在时装配（见
+     * {@code K8sOrchestrationConfig} + {@code K8sEnabledCondition}）。此处经 {@link ObjectProvider} 懒解析：
+     * bean 缺失（CI 无 k3s）→ 调编排工具返「K8S 编排未启用」明确错误（INVALID_PARAMS），而非启动期崩。
      *
      * <p>Spring AI starter 自动收集此 bean 注册到 MCP server，驱动 {@code tools/list} 返回。
      */
     @Bean
-    List<SyncToolSpecification> mcpToolSpecifications(StaticToolRegistry registry, ToolsCallRouter router) {
-        List<SyncToolSpecification> specs = new ArrayList<>(registry.tools().size());
+    List<SyncToolSpecification> mcpToolSpecifications(StaticToolRegistry registry, ToolsCallRouter router,
+                                                      ObjectProvider<K8sToolHandlers> k8sHandlersProvider) {
+        // 35 个静态工具 → 经 ToolsCallRouter 路由
+        List<SyncToolSpecification> specs = new ArrayList<>(registry.tools().size() + K8sToolRegistry.tools().size());
         for (ExposedTool exposed : registry.tools()) {
             Tool tool = McpSchema.Tool.builder()
                     .name(exposed.name())
@@ -69,6 +87,27 @@ public class GatewayMcpServerConfig {
                     .build();
             BiFunction<McpSyncServerExchange, CallToolRequest, CallToolResult> handler =
                     (exchange, request) -> router.route(exposed, request);
+            specs.add(new SyncToolSpecification(tool, handler));
+        }
+        // 3 个编排工具 → handler 自带闭包、不经 ToolsCallRouter（ObjectProvider 懒解析 K8sToolHandlers）
+        for (ExposedTool exposed : K8sToolRegistry.tools()) {
+            Tool tool = McpSchema.Tool.builder()
+                    .name(exposed.name())
+                    .description(exposed.description())
+                    .inputSchema(exposed.inputSchema())
+                    .build();
+            BiFunction<McpSyncServerExchange, CallToolRequest, CallToolResult> handler =
+                    (exchange, request) -> {
+                        K8sToolHandlers handlers = k8sHandlersProvider.getIfAvailable();
+                        if (handlers == null) {
+                            // kubeconfig 缺失（CI 无 k3s）→ 编排 bean 未装配，返明确错误
+                            throw McpError.builder(McpErrorCodes.INVALID_PARAMS)
+                                    .message("K8S 编排未启用：未配置可读的 arthas-gateway.k8s.kubeconfig"
+                                            + "（工具 " + exposed.name() + " 需真实集群）")
+                                    .build();
+                        }
+                        return handlers.handle(exposed, request);
+                    };
             specs.add(new SyncToolSpecification(tool, handler));
         }
         return specs;

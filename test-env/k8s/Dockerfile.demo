@@ -1,0 +1,24 @@
+# Dockerfile.demo —— 003 测试床 demo 业务镜像（纯 app，无 arthas）。
+#
+# 设计依据：docs/superpowers/specs/2026-06-23-k8s-test-env-setup-design.md §四。
+# - 基础镜像 eclipse-temurin:21-jdk（debian 系，自带 sh；需 jps 定位 JVM PID → JDK 非 JRE）。
+#   hasShell + hasJvm 满足 design §4 目标须 shell+java+JVM；ensure 经 fabric8 exec 注入 arthas。
+# - 仅 3 个运行时夹具类（DemoBusinessApp + OrderService + OrderResult），由 setup.sh 在 debian 上
+#   从 target/test-classes 组入 build context 的 classes/ 目录树。arthas 不入镜像（ensure 时上传）。
+# - CMD 常驻；内置 hot-loop 每 50ms 自触发 hotMethod（watch/trace 无需外部触发）。
+#
+# build 地点 = debian（本机无 Docker）：setup.sh 把 Dockerfile + classes/ scp 到 debian →
+#   docker build -t arthas-gateway/demo-business:local . → docker save | k3s ctr images import
+#
+# 注意：实际 build context 由 setup.sh 动态组装（Dockerfile + classes/），见 setup.sh。
+FROM eclipse-temurin:21-jdk
+
+WORKDIR /app
+
+# build context 内 classes/com/arthas/gateway/testfixtures/{DemoBusinessApp,OrderService,OrderResult}.class
+COPY classes/ /app/classes/
+
+EXPOSE 8081
+
+# 容器内业务 8081（/actuator/health 探针 + /api/order）；hot-loop 自驱动诊断事件
+CMD ["java", "-cp", "/app/classes", "com.arthas.gateway.testfixtures.DemoBusinessApp", "8081"]

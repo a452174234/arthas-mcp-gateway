@@ -137,10 +137,10 @@ mvn -pl . verify
 
 ## 6. 验证清单（Done Definition）
 
-- [ ] 场景 A（波次 A 纯逻辑）全绿，CI 可跑。
-- [ ] 场景 B（波次 B 真实夹具）本地 k3s 全绿，含 K-ENS-7 回归守护（`0.0.0.0` 经 NodePort 可达 / loopback 不可达，R4 已先期实证）。
-- [ ] 场景 C（端到端）真实 Claude Code 编排枚举+供给+诊断，结果来自指定 pod JVM，5 分钟内（SC-001）。
-- [ ] 故障韧性 SC-003：pod 删除 → 30 秒内隔离、明确错误、不影响其他 target。
-- [ ] 回归：001/002 既有测试全绿，38 工具 tools/list。
-- [ ] tools/list = 38（35 + 3），`listChanged=false` 不变。
-- [ ] gateway-core 包零 K8S 依赖（编排工具不经路由器，[research.md R6](./research.md)）。
+- [X] 场景 A（波次 A 纯逻辑）全绿，CI 可跑。
+- [X] 场景 B（波次 B 真实夹具）本地 k3s 全绿，含 K-ENS-7 回归守护（`0.0.0.0` 经 NodePort 可达 / loopback 不可达，R4 已先期实证）。
+- [X] 场景 C（端到端）真实 Claude Code 编排枚举+供给+诊断，结果来自指定 pod JVM，5 分钟内（SC-001）。
+- [X] 故障韧性 SC-003：pod 删除 → 30 秒内隔离、明确错误、不影响其他 target。
+- [X] 回归：001/002 既有测试全绿，38 工具 tools/list。
+- [X] tools/list = 38（35 + 3），`listChanged=false` 不变。
+- [X] gateway-core 包零 K8S 依赖（编排工具不经路由器，[research.md R6](./research.md)）。

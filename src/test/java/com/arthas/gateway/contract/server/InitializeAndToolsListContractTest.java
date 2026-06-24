@@ -40,8 +40,11 @@ class InitializeAndToolsListContractTest {
     private static final Set<String> ACCEPTED_PROTOCOL_VERSIONS =
             Set.of("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25");
 
-    /** 4 个网关自有工具名前缀（区分 arthas 工具与网关工具）。 */
+    /** 4 个网关自有工具名前缀（区分 arthas 工具与网关/K8S 工具）。 */
     private static final String GATEWAY_TOOL_PREFIX = "arthas-gateway.";
+
+    /** 3 个 K8S 编排工具名前缀（003 特性：k8s.list-pods/k8s.list-services/k8s.ensure-arthas-mcp，无 target 参数）。 */
+    private static final String K8S_TOOL_PREFIX = "k8s.";
 
     @LocalServerPort
     private int port;
@@ -102,13 +105,13 @@ class InitializeAndToolsListContractTest {
 
     // ===== S-TL =====
 
-    /** S-TL-1：tools/list 工具数 == 35（31 arthas + 4 网关自有）。 */
+    /** S-TL-1：tools/list 工具数 == 38（31 arthas + 4 网关自有 + 3 K8S 编排）。 */
     @Test
-    void s_tl_1_toolsCountIs35() {
+    void s_tl_1_toolsCountIs38() {
         try (McpClientHarness h = new McpClientHarness(baseUrl())) {
             h.initialize();
             List<Tool> tools = h.listTools().tools();
-            assertThat(tools).as("工具总数 == 35").hasSize(35);
+            assertThat(tools).as("工具总数 == 38（31 arthas + 4 网关自有 + 3 K8S 编排）").hasSize(38);
         }
     }
 
@@ -157,7 +160,7 @@ class InitializeAndToolsListContractTest {
 
     /**
      * S-TL-4（A1 调整）：taskSupport 仅内部路由用，<b>不</b>在协议发射——
-     * 断言线上 35 个工具的 inputSchema 与 Tool 均<b>不含</b> taskSupport / execution 字段。
+     * 断言线上 38 个工具的 inputSchema 与 Tool 均<b>不含</b> taskSupport / execution 字段。
      *
      * <p>原 S-TL-4（execution.taskSupport 符合预期）的线上断言改在 StaticToolRegistryTest（注册表/路由层）覆盖；
      * 此处仅校验协议边界不泄漏内部字段（用户决定 A1，见 memory sdk2-vs-spec-divergences）。
@@ -177,7 +180,7 @@ class InitializeAndToolsListContractTest {
         }
     }
 
-    /** S-TL-5：tools/list 的 nextCursor == null（35 工具静态，不分页）。 */
+    /** S-TL-5：tools/list 的 nextCursor == null（38 工具静态，不分页）。 */
     @Test
     void s_tl_5_nextCursorIsNull() {
         try (McpClientHarness h = new McpClientHarness(baseUrl())) {
@@ -190,10 +193,16 @@ class InitializeAndToolsListContractTest {
 
     // ===== 辅助 =====
 
-    /** 从线上的 35 个工具中筛出 31 个 arthas 工具（排除 arthas-gateway.* 前缀的网关自有工具）。 */
+    /**
+     * 从线上工具中筛出 31 个 arthas 工具（排除 arthas-gateway.* 网关自有工具与 k8s.* K8S 编排工具）。
+     *
+     * <p>K8S 编排工具（003 特性）与网关自有工具均<b>不含</b> target 参数（非 arthas 诊断工具），
+     * 须从 S-TL-2/S-TL-3 的 target 逐字比对中剔除，否则会误判 K8S 工具"缺 target"为违约。
+     */
     private static List<Tool> arthasTools(List<Tool> all) {
         return all.stream()
                 .filter(t -> !t.name().startsWith(GATEWAY_TOOL_PREFIX))
+                .filter(t -> !t.name().startsWith(K8S_TOOL_PREFIX))
                 .toList();
     }
 

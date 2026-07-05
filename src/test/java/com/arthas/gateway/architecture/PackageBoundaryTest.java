@@ -65,4 +65,20 @@ class PackageBoundaryTest {
                         + "诊断核心经既有 MCP 路由管线，不直接操 K8S")
                 .check(classes);
     }
+
+    /**
+     * 004 增量：诊断核心不得依赖管理面（admin 包，admin-invariants INV-ISOL-1）。
+     *
+     * <p>admin 管理面消费 backend（CRUD/导出），反向依赖禁止——诊断核心（/mcp）不被管理面（/admin）污染，
+     * 保证管理面操作不影响诊断面（回归守护 SC-004）。
+     */
+    @Test
+    void diagnosticCoreDoesNotDependOnAdmin() {
+        noClasses()
+                .that().resideInAnyPackage(DIAGNOSTIC_CORE)
+                .should().dependOnClassesThat().resideInAPackage("com.arthas.gateway.admin..")
+                .because("诊断核心（/mcp）与管理面（/admin）隔离（004 INV-ISOL-1/SC-004）；"
+                        + "admin 消费 backend，反向依赖禁止")
+                .check(classes);
+    }
 }

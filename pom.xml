@@ -30,6 +30,8 @@
         <mcp.version>2.0.0</mcp.version>
         <!-- Spring AI 2.0.0 GA：提供 MCP server 自动装配（WebMVC 传输 + 工具注册） -->
         <spring-ai.version>2.0.0</spring-ai.version>
+        <!-- 004 前端构建可跳过（开发期快速验证后端：-DskipFrontend=true）；默认 false 跑前端（CI/verify 出含前端 JAR，FR-011） -->
+        <skipFrontend>false</skipFrontend>
     </properties>
 
     <!-- 双 BOM 锁版本：spring-ai-bom 管 spring-ai-* 与 org.springframework.ai 传输模块；mcp-bom 管 io.modelcontextprotocol.sdk 核心 -->
@@ -209,6 +211,51 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!--
+                004 前端构建集成（research.md R11）：frontend-maven-plugin 在 Maven 内跑 npm install + build。
+                - workingDirectory=web/（package.json 所在）
+                - 下载指定版本 node（CI 无需预装、复现本地构建，宪法「CI 复现」）
+                - vite build outDir=target/classes/static（web/vite.config.ts）→ Spring Boot 打包进 JAR（FR-011）
+                - generate-resources 阶段（compile 前）；test 阶段跑 vitest（前端组件测试，FR-013）
+                前端=展示层（宪法原则六 R13），核心逻辑 Java 后端。
+            -->
+            <plugin>
+                <groupId>com.github.eirslett</groupId>
+                <artifactId>frontend-maven-plugin</artifactId>
+                <version>1.15.1</version>
+                <configuration>
+                    <workingDirectory>${project.basedir}/web</workingDirectory>
+                    <installDirectory>${project.basedir}/web</installDirectory>
+                    <nodeVersion>v22.22.0</nodeVersion>
+                    <skip>${skipFrontend}</skip>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>install-node-and-npm</id>
+                        <goals><goal>install-node-and-npm</goal></goals>
+                        <phase>generate-resources</phase>
+                    </execution>
+                    <execution>
+                        <id>npm-install</id>
+                        <goals><goal>npm</goal></goals>
+                        <phase>generate-resources</phase>
+                        <configuration><arguments>install</arguments></configuration>
+                    </execution>
+                    <execution>
+                        <id>npm-build</id>
+                        <goals><goal>npm</goal></goals>
+                        <phase>generate-resources</phase>
+                        <configuration><arguments>run build</arguments></configuration>
+                    </execution>
+                    <execution>
+                        <id>npm-test</id>
+                        <goals><goal>npm</goal></goals>
+                        <phase>test</phase>
+                        <configuration><arguments>run test</arguments></configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

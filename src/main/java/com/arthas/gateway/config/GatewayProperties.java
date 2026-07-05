@@ -31,6 +31,9 @@ public class GatewayProperties {
     /** K8S 编排子段（003 特性：k8s.list-* / k8s.ensure-arthas-mcp 工具的集群连接与供给参数）。 */
     private K8s k8s = new K8s();
 
+    /** portal 管理面能力开关子段（004 特性，{@code arthas-gateway.admin.*}）。 */
+    private Admin admin = new Admin();
+
     public String getBackendsFile() {
         return backendsFile;
     }
@@ -53,6 +56,14 @@ public class GatewayProperties {
 
     public void setK8s(K8s k8s) {
         this.k8s = k8s;
+    }
+
+    public Admin getAdmin() {
+        return admin;
+    }
+
+    public void setAdmin(Admin admin) {
+        this.admin = admin;
     }
 
     /** 异步任务默认值（方案 C，详见 research.md §4）。 */
@@ -216,6 +227,63 @@ public class GatewayProperties {
 
         public void setArthasPassword(String arthasPassword) {
             this.arthasPassword = arthasPassword;
+        }
+    }
+
+    /**
+     * portal 管理面能力开关子段（004 特性，{@code arthas-gateway.admin.*}）。
+     *
+     * <p>承载后端 CRUD 与任务导出能力的按需启用开关（research.md R9 / spec FR-014）。
+     * 各能力经 {@code @ConditionalOnProperty} 独立装配，关闭则对应端点 404、前端降级提示。
+     */
+    public static class Admin {
+
+        /** 后端配置 CRUD 能力（{@code arthas-gateway.admin.crud.enabled}，默认开）。 */
+        private Crud crud = new Crud();
+
+        /** 异步任务结果导出能力（{@code arthas-gateway.admin.export.enabled}，默认开）。 */
+        private Export export = new Export();
+
+        public Crud getCrud() {
+            return crud;
+        }
+
+        public void setCrud(Crud crud) {
+            this.crud = crud;
+        }
+
+        public Export getExport() {
+            return export;
+        }
+
+        public void setExport(Export export) {
+            this.export = export;
+        }
+
+        /** 后端配置 CRUD 开关（/admin/backends）。 */
+        public static class Crud {
+            private boolean enabled = true;
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public void setEnabled(boolean enabled) {
+                this.enabled = enabled;
+            }
+        }
+
+        /** 任务结果导出开关（/admin/tasks/{id}/export）。 */
+        public static class Export {
+            private boolean enabled = true;
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public void setEnabled(boolean enabled) {
+                this.enabled = enabled;
+            }
         }
     }
 }

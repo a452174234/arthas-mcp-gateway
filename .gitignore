@@ -53,3 +53,14 @@ config/backends-runtime.yaml
 logs/
 .DS_Store
 Thumbs.db
+
+# === codebase-memory-mcp ===
+# 索引产物：本地知识图谱快照，按需重建，不入库（团队成员各自 index_repository）。
+.codebase-memory/
+
+# === Node / 前端（004 portal web/） ===
+# node_modules 与 frontend-maven-plugin 下载的 node 运行时不入库（CI 各自 npm install）
+web/node_modules/
+web/node/
+web/.npm/
+web/dist/

@@ -109,6 +109,19 @@ claude -p "列出 arthas-gw 暴露的全部工具名，仅输出 JSON 数组" \
 
 ---
 
+## 管理面 portal（Web UI，004）
+
+004 落地 003 P3 portal 的**配置管理子集**：浏览器访问网关根加载 Vue 3 SPA（内嵌单 JAR），同源调 `/admin` HTTP API。
+
+- **后端 `/admin` API**（Java）：`/admin/backends` CRUD（静态写 `backends.yaml` 热重载 / 动态 `DynamicBackendStore`）+ `/admin/tasks/{id}/export`（`completed` 任务原样 JSON 下载，宪法原则二）。能力各自 `@ConditionalOnProperty` 按需开关（`arthas-gateway.admin.crud.enabled` / `export.enabled`，默认开）。Noop 鉴权（受控内网）。
+- **前端 SPA**（`web/`，Vue 3 + Vite + TypeScript）：后端管理页（列表 + 增删改 + 健康徽标 + 凭据脱敏）、任务导出页（查询 + 原样下载）。前端=**展示层**（核心逻辑 Java 后端，宪法原则六对齐）。`vite build` → `target/classes/static/` 内嵌单 JAR。
+- **构建**：`./mvnw verify` 经 `frontend-maven-plugin` 跑 `npm install + build`，产出**含前端 SPA 的单 JAR**（CI 可复现，开发期 `-DskipFrontend=true` 跳前端）。
+- **范围**：A 后端配置 CRUD + C 异步任务结果导出。B 动态持久化 / D 操作审计 / 任务可视化 / 鉴权 后置。
+
+详见 [004 spec](./specs/004-portal-backend-management/spec.md)。
+
+---
+
 ## 测试（真实环境，零桩）
 
 **TDD 硬约束**：所有测试先于实现编写；**禁桩**——真实 arthas MCP + 真实业务服务产生真实诊断，故障用真实故障条件（停 JVM=不可达、关闭端口=连接拒绝、错 token=真实 401）。

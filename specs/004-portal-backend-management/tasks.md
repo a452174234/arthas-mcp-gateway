@@ -29,10 +29,10 @@
 
 **Purpose**: 前端项目初始化 + Maven 构建集成 + 能力开关配置外化
 
-- [ ] T001 [P] Initialize `web/` 前端项目（Vue 3 + Vite + TypeScript + Vue Router）in `web/`（`package.json`/`vite.config.ts`/`tsconfig.json`/`src/main.ts`/`src/App.vue`/`src/router.ts` 骨架；vite build outDir → `../src/main/resources/static/`；research.md R10/R12）
-- [ ] T002 [P] Add `com.github.eirslett:frontend-maven-plugin` to `pom.xml`（挂 `generate-resources` 跑 `npm install + npm run build`，自动下载 node；产物落 `src/main/resources/static/`；FR-011/R11）
-- [ ] T003 [P] Add `arthas-gateway.admin.*` config section to `src/main/resources/application.yml`（`crud.enabled: true` / `export.enabled: true`，默认开；R9）
-- [ ] T004 [P] Add `Admin` 子段（`crud.enabled`/`export.enabled` 绑定）to `src/main/java/com/arthas/gateway/config/GatewayProperties.java`
+- [X] T001 [P] Initialize `web/` 前端项目（Vue 3 + Vite + TypeScript + Vue Router）in `web/`（`package.json`/`vite.config.ts`/`tsconfig.json`/`src/main.ts`/`src/App.vue`/`src/router.ts` 骨架；vite build outDir → `../src/main/resources/static/`；research.md R10/R12）
+- [X] T002 [P] Add `com.github.eirslett:frontend-maven-plugin` to `pom.xml`（挂 `generate-resources` 跑 `npm install + npm run build`，自动下载 node；产物落 `src/main/resources/static/`；FR-011/R11）
+- [X] T003 [P] Add `arthas-gateway.admin.*` config section to `src/main/resources/application.yml`（`crud.enabled: true` / `export.enabled: true`，默认开；R9）
+- [X] T004 [P] Add `Admin` 子段（`crud.enabled`/`export.enabled` 绑定）to `src/main/java/com/arthas/gateway/config/GatewayProperties.java`
 
 **Checkpoint**: 前端项目就位、Maven 构建集成、能力开关配置外化
 
@@ -44,10 +44,10 @@
 
 > **TDD（宪法原则七）**：测试先写并确认失败（红），再实现至通过（绿）。
 
-- [ ] T005 [P] Write failing `AdminCapabilitySwitchTest` in `src/test/java/com/arthas/gateway/admin/AdminCapabilitySwitchTest.java`（断言 INV-SWITCH-1/2：`admin.crud.enabled=false` → `/admin/backends/*` 404；`admin.export.enabled=false` → `/admin/tasks/*/export` 404；两者独立、默认开）
-- [ ] T006 Implement 条件装配骨架 in `src/main/java/com/arthas/gateway/admin/backend/BackendCrudAutoConfig.java`、`src/main/java/com/arthas/gateway/admin/task/TaskExportAutoConfig.java`（`@ConditionalOnProperty(name=..., havingValue="true", matchIfMissing=true)`；green for T005）
-- [ ] T007 [P] Write failing 前端 SPA 骨架测试 in `web/src/__tests__/App.test.ts`、`web/src/__tests__/api/adminClient.test.ts`（Vitest：根路由加载 App、`adminClient` fetch `/admin` 封装 + 错误传播；research.md R6）
-- [ ] T008 Implement 前端 SPA 骨架 in `web/src/App.vue`、`web/src/router.ts`、`web/src/api/adminClient.ts`（Vue Router 路由 `/`、`fetch('/admin/...')` 同源封装；green for T007）
+- [X] T005 [P] Write failing `AdminCapabilitySwitchTest` in `src/test/java/com/arthas/gateway/admin/AdminCapabilitySwitchTest.java`（断言 INV-SWITCH-1/2：`admin.crud.enabled=false` → `/admin/backends/*` 404；`admin.export.enabled=false` → `/admin/tasks/*/export` 404；两者独立、默认开）
+- [X] T006 Implement 条件装配骨架 in `src/main/java/com/arthas/gateway/admin/backend/BackendCrudAutoConfig.java`、`src/main/java/com/arthas/gateway/admin/task/TaskExportAutoConfig.java`（`@ConditionalOnProperty(name=..., havingValue="true", matchIfMissing=true)`；green for T005）
+- [X] T007 [P] Write failing 前端 SPA 骨架测试 in `web/src/__tests__/App.test.ts`、`web/src/__tests__/api/adminClient.test.ts`（Vitest：根路由加载 App、`adminClient` fetch `/admin` 封装 + 错误传播；research.md R6）
+- [X] T008 Implement 前端 SPA 骨架 in `web/src/App.vue`、`web/src/router.ts`、`web/src/api/adminClient.ts`（Vue Router 路由 `/`、`fetch('/admin/...')` 同源封装；green for T007）
 
 **Checkpoint**: 共享基建全绿——US1/US2 可在此之上构建
 
@@ -63,19 +63,19 @@
 
 ### 后端
 
-- [ ] T009 [P] [US1] Write failing `BackendDtoTest` in `src/test/java/com/arthas/gateway/admin/backend/dto/BackendDtoTest.java`（字段全集 + INV-SECRET-1 凭据脱敏：`auth` 仅 `mode`，不回显 token/username/password）
-- [ ] T010 [US1] Implement `BackendDto` + `CreateBackendRequest` + `UpdateBackendRequest` in `src/main/java/com/arthas/gateway/admin/backend/dto/`（green for T009）
-- [ ] T011 [P] [US1] Write failing `BackendsYamlWriterTest` in `src/test/java/com/arthas/gateway/admin/backend/BackendsYamlWriterTest.java`（INV-FILE-1：写回 `version`+`backends`、热重载可解析、不保留注释为已知行为；R2）
-- [ ] T012 [US1] Implement `BackendsYamlWriter` in `src/main/java/com/arthas/gateway/admin/backend/BackendsYamlWriter.java`（SnakeYAML `dump` 重写 `config/backends.yaml`；green for T011）
-- [ ] T013 [P] [US1] Write failing `BackendAdminServiceTest` in `src/test/java/com/arthas/gateway/admin/backend/BackendAdminServiceTest.java`（静态 POST/PUT/DELETE 经 YamlWriter；动态 POST/PUT 拒绝 INV-DYN-1、DELETE=`DynamicBackendStore.unregister`；name 冲突 400；R3/R7）
-- [ ] T014 [US1] Implement `BackendAdminService` in `src/main/java/com/arthas/gateway/admin/backend/BackendAdminService.java`（编排 `BackendRegistry`/`DynamicBackendStore`/`BackendsYamlWriter`；green for T013）
-- [ ] T015 [US1] Implement `BackendAdminController` in `src/main/java/com/arthas/gateway/admin/backend/BackendAdminController.java`（`@RestController @RequestMapping("/admin/backends")` GET 列表/详情、POST、PUT、DELETE + 错误体；装配进 `BackendCrudAutoConfig`）
-- [ ] T016 [P] [US1] Write failing `BackendAdminContractIT` in `src/test/java/com/arthas/gateway/admin/backend/BackendAdminContractIT.java`（failsafe *IT，真实网关 + 真实后端：A-LIST-1 健康一致 SC-003、A-ADD-1 静态写 YAML 热重载 30s、A-UPD-1/A-DEL-1、INV-DYN-1、INV-ERR-1、INV-SECRET-1）
+- [X] T009 [P] [US1] Write failing `BackendDtoTest` in `src/test/java/com/arthas/gateway/admin/backend/dto/BackendDtoTest.java`（字段全集 + INV-SECRET-1 凭据脱敏：`auth` 仅 `mode`，不回显 token/username/password）
+- [X] T010 [US1] Implement `BackendDto` + `CreateBackendRequest` + `UpdateBackendRequest` in `src/main/java/com/arthas/gateway/admin/backend/dto/`（green for T009）
+- [X] T011 [P] [US1] Write failing `BackendsYamlWriterTest` in `src/test/java/com/arthas/gateway/admin/backend/BackendsYamlWriterTest.java`（INV-FILE-1：写回 `version`+`backends`、热重载可解析、不保留注释为已知行为；R2）
+- [X] T012 [US1] Implement `BackendsYamlWriter` in `src/main/java/com/arthas/gateway/admin/backend/BackendsYamlWriter.java`（SnakeYAML `dump` 重写 `config/backends.yaml`；green for T011）
+- [X] T013 [P] [US1] Write failing `BackendAdminServiceTest` in `src/test/java/com/arthas/gateway/admin/backend/BackendAdminServiceTest.java`（静态 POST/PUT/DELETE 经 YamlWriter；动态 POST/PUT 拒绝 INV-DYN-1、DELETE=`DynamicBackendStore.unregister`；name 冲突 400；R3/R7）
+- [X] T014 [US1] Implement `BackendAdminService` in `src/main/java/com/arthas/gateway/admin/backend/BackendAdminService.java`（编排 `BackendRegistry`/`DynamicBackendStore`/`BackendsYamlWriter`；green for T013）
+- [X] T015 [US1] Implement `BackendAdminController` in `src/main/java/com/arthas/gateway/admin/backend/BackendAdminController.java`（`@RestController @RequestMapping("/admin/backends")` GET 列表/详情、POST、PUT、DELETE + 错误体；装配进 `BackendCrudAutoConfig`）
+- [X] T016 [P] [US1] Write failing `BackendAdminContractIT` in `src/test/java/com/arthas/gateway/admin/backend/BackendAdminContractIT.java`（failsafe *IT，真实网关 + 真实后端：A-LIST-1 健康一致 SC-003、A-ADD-1 静态写 YAML 热重载 30s、A-UPD-1/A-DEL-1、INV-DYN-1、INV-ERR-1、INV-SECRET-1）
 
 ### 前端
 
-- [ ] T017 [P] [US1] Write failing 前端组件测试 in `web/src/__tests__/views/BackendListView.test.ts`、`web/src/__tests__/components/BackendForm.test.ts`（Vitest：列表渲染 + 健康徽标、表单提交触发 adminClient.create、动态后端编辑禁用、错误 inline 提示）
-- [ ] T018 [US1] Implement 前端后端管理页 in `web/src/views/BackendListView.vue`、`web/src/components/`（`BackendTable.vue`/`BackendForm.vue`/`HealthBadge.vue`）+ 扩 `api/adminClient.ts`（backends CRUD）；green for T017
+- [X] T017 [P] [US1] Write failing 前端组件测试 in `web/src/__tests__/views/BackendListView.test.ts`、`web/src/__tests__/components/BackendForm.test.ts`（Vitest：列表渲染 + 健康徽标、表单提交触发 adminClient.create、动态后端编辑禁用、错误 inline 提示）
+- [X] T018 [US1] Implement 前端后端管理页 in `web/src/views/BackendListView.vue`、`web/src/components/`（`BackendTable.vue`/`BackendForm.vue`/`HealthBadge.vue`）+ 扩 `api/adminClient.ts`（backends CRUD）；green for T017
 
 **Checkpoint (US1)**: 浏览器 → 后端管理页全链路通——静态 CRUD 写 YAML 热重载、动态不可改可删、健康视图、脱敏
 
@@ -91,17 +91,17 @@
 
 ### 后端
 
-- [ ] T019 [P] [US2] Write failing `TaskExportDtoTest` in `src/test/java/com/arthas/gateway/admin/task/dto/TaskExportDtoTest.java`（INV-EXP-1：`frames[]` 原样来自 `GatewayTask`，与 task-get 逐字一致）
-- [ ] T020 [US2] Implement `TaskExportDto` in `src/main/java/com/arthas/gateway/admin/task/dto/TaskExportDto.java`（green for T019）
-- [ ] T021 [P] [US2] Write failing `TaskExportServiceTest` in `src/test/java/com/arthas/gateway/admin/task/TaskExportServiceTest.java`（`TaskStore.get` → DTO；仅 `completed` 可导出，其他 → 409/404；A-EXP-2）
-- [ ] T022 [US2] Implement `TaskExportService` in `src/main/java/com/arthas/gateway/admin/task/TaskExportService.java`（原样 frames，宪法原则二；green for T021）
-- [ ] T023 [US2] Implement `TaskExportController` in `src/main/java/com/arthas/gateway/admin/task/TaskExportController.java`（`GET /admin/tasks/{taskId}/export?format=json` + `Content-Disposition: attachment`；装配进 `TaskExportAutoConfig`）
-- [ ] T024 [P] [US2] Write failing `TaskExportContractIT` in `src/test/java/com/arthas/gateway/admin/task/TaskExportContractIT.java`（failsafe *IT，真实 watch→completed→export：A-EXP-1 frames 与 task-get 一致 INV-EXP-1、A-EXP-2 →409/404、Content-Disposition attachment）
+- [X] T019 [P] [US2] Write failing `TaskExportDtoTest` in `src/test/java/com/arthas/gateway/admin/task/dto/TaskExportDtoTest.java`（INV-EXP-1：`frames[]` 原样来自 `GatewayTask`，与 task-get 逐字一致）
+- [X] T020 [US2] Implement `TaskExportDto` in `src/main/java/com/arthas/gateway/admin/task/dto/TaskExportDto.java`（green for T019）
+- [X] T021 [P] [US2] Write failing `TaskExportServiceTest` in `src/test/java/com/arthas/gateway/admin/task/TaskExportServiceTest.java`（`TaskStore.get` → DTO；仅 `completed` 可导出，其他 → 409/404；A-EXP-2）
+- [X] T022 [US2] Implement `TaskExportService` in `src/main/java/com/arthas/gateway/admin/task/TaskExportService.java`（原样 frames，宪法原则二；green for T021）
+- [X] T023 [US2] Implement `TaskExportController` in `src/main/java/com/arthas/gateway/admin/task/TaskExportController.java`（`GET /admin/tasks/{taskId}/export?format=json` + `Content-Disposition: attachment`；装配进 `TaskExportAutoConfig`）
+- [X] T024 [P] [US2] Write failing `TaskExportContractIT` in `src/test/java/com/arthas/gateway/admin/task/TaskExportContractIT.java`（failsafe *IT，真实 watch→completed→export：A-EXP-1 frames 与 task-get 一致 INV-EXP-1、A-EXP-2 →409/404、Content-Disposition attachment）
 
 ### 前端
 
-- [ ] T025 [P] [US2] Write failing 前端组件测试 in `web/src/__tests__/views/TaskExportView.test.ts`、`web/src/__tests__/components/DownloadButton.test.ts`（Vitest：任务列表渲染、下载触发 `GET /admin/tasks/{id}/export`、错误提示）
-- [ ] T026 [US2] Implement 前端任务导出页 in `web/src/views/TaskExportView.vue`、`web/src/components/DownloadButton.vue` + 扩 `api/adminClient.ts`（export 下载）；green for T025
+- [X] T025 [P] [US2] Write failing 前端组件测试 in `web/src/__tests__/views/TaskExportView.test.ts`、`web/src/__tests__/components/DownloadButton.test.ts`（Vitest：任务列表渲染、下载触发 `GET /admin/tasks/{id}/export`、错误提示）
+- [X] T026 [US2] Implement 前端任务导出页 in `web/src/views/TaskExportView.vue`、`web/src/components/DownloadButton.vue` + 扩 `api/adminClient.ts`（export 下载）；green for T025
 
 **Checkpoint (US2)**: 浏览器 → 任务导出页闭环——completed 原样 JSON 下载、未完成/不存在明确错误
 
@@ -111,12 +111,12 @@
 
 **Purpose**: 回归守护、包边界、能力开关端到端、浏览器 E2E、文档（不破 001/002/003）
 
-- [ ] T027 [P] Regression guard：`./mvnw verify` 全绿——`frontend-maven-plugin` 跑通前端构建（SC-005 含前端 JAR）+ `/mcp` 38 工具契约（`InitializeAndToolsListContractTest` 等）+ 双侧契约 + 热重载（`HotReloadIT`）+ 003 K8S `*IT`；INV-ISOL-1 / SC-004 管理面 + SPA 不影响诊断面
-- [ ] T028 [P] Add ArchUnit boundary assertions to `src/test/java/com/arthas/gateway/architecture/PackageBoundaryTest.java`（`admin` 不破 gateway-core 边界；gateway-core 零 K8S 依赖不变；核心逻辑在 Java 后端、前端无业务规则——原则六 R13）
-- [ ] T029 [P] 能力开关端到端 IT：`admin.crud.enabled=false` / `admin.export.enabled=false` 各自 `/admin/*` 404 + 前端降级提示、互不影响、`/mcp` 不受影响（INV-SWITCH-1/2）
-- [ ] T030 浏览器端到端（真实零桩）：浏览器 → SPA → `/admin` CRUD + 导出全链路（Playwright E2E 或手测脚本，真实网关 + 真实后端/任务）
-- [ ] T031 Run `quickstart.md` validation：场景 A（CRUD）+ B（导出）+ C（开关）+ D（构建）+ 回归（§6 Done Definition 逐项核对）
-- [ ] T032 [P] Update docs：README 增 portal Web UI 说明 + `arthas-gateway.admin.*` 配置 + 前端构建（`./mvnw verify` 出含前端单 JAR）+ 能力按需开关（宪法"每项新能力必须有文档"）
+- [X] T027 [P] Regression guard：`./mvnw verify` 全绿——`frontend-maven-plugin` 跑通前端构建（SC-005 含前端 JAR）+ `/mcp` 38 工具契约（`InitializeAndToolsListContractTest` 等）+ 双侧契约 + 热重载（`HotReloadIT`）+ 003 K8S `*IT`；INV-ISOL-1 / SC-004 管理面 + SPA 不影响诊断面
+- [X] T028 [P] Add ArchUnit boundary assertions to `src/test/java/com/arthas/gateway/architecture/PackageBoundaryTest.java`（`admin` 不破 gateway-core 边界；gateway-core 零 K8S 依赖不变；核心逻辑在 Java 后端、前端无业务规则——原则六 R13）
+- [X] T029 [P] 能力开关端到端 IT：`admin.crud.enabled=false` / `admin.export.enabled=false` 各自 `/admin/*` 404 + 前端降级提示、互不影响、`/mcp` 不受影响（INV-SWITCH-1/2）
+- [X] T030 浏览器端到端（真实零桩）：浏览器 → SPA → `/admin` CRUD + 导出全链路（Playwright E2E 或手测脚本，真实网关 + 真实后端/任务）
+- [X] T031 Run `quickstart.md` validation：场景 A（CRUD）+ B（导出）+ C（开关）+ D（构建）+ 回归（§6 Done Definition 逐项核对）
+- [X] T032 [P] Update docs：README 增 portal Web UI 说明 + `arthas-gateway.admin.*` 配置 + 前端构建（`./mvnw verify` 出含前端单 JAR）+ 能力按需开关（宪法"每项新能力必须有文档"）
 
 ---
 

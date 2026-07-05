@@ -51,6 +51,12 @@ arthas-gateway:
     node-port-range: 30000-32767
     # ensure 全流程超时（注入 + 暴露 + 健康检查 + 注册），须 > arthas attach + 健康轮询
     ensure-timeout: 5m
+  # portal 管理面能力开关（004 特性，research.md R9：@ConditionalOnProperty 按需启用，默认开）
+  admin:
+    crud:
+      enabled: true      # 后端配置 CRUD（/admin/backends）；false 则端点 404、前端降级（INV-SWITCH-1）
+    export:
+      enabled: true      # 异步任务结果导出（/admin/tasks/{id}/export）；false 则端点 404（INV-SWITCH-2）
 
 # 宪法原则五：Actuator 暴露网关健康与状态（运维无需读源码；唯一允许直连端点，不涉 MCP 调用）
 management:

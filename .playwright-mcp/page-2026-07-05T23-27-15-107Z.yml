@@ -1,0 +1,22 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "arthas portal" [level=1] [ref=e5]
+    - navigation [ref=e6]:
+      - link "后端管理" [ref=e7] [cursor=pointer]:
+        - /url: /backends
+      - link "任务导出" [ref=e8] [cursor=pointer]:
+        - /url: /tasks
+  - main [ref=e9]:
+    - generic [ref=e10]:
+      - heading "后端管理" [level=2] [ref=e11]
+      - table [ref=e12]:
+        - rowgroup [ref=e13]:
+          - row "名称 来源 健康 URL 认证 操作" [ref=e14]:
+            - columnheader "名称" [ref=e15]
+            - columnheader "来源" [ref=e16]
+            - columnheader "健康" [ref=e17]
+            - columnheader "URL" [ref=e18]
+            - columnheader "认证" [ref=e19]
+            - columnheader "操作" [ref=e20]
+        - rowgroup
+      - button "新增后端" [ref=e21]

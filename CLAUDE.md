@@ -60,7 +60,7 @@
 
 <!-- SPECKIT START -->
 如需了解本项目当前使用的技术、项目结构、shell 命令与其他重要信息，请阅读当前实现计划：
-`specs/004-portal-backend-management/plan.md`（特性：portal 后端管理平台——单 JAR 双入口（picocli：`serve` 起网关 / `portal` 跑 CLI）+ `/admin` HTTP 管理 API；后端配置 CRUD（静态写 `backends.yaml` 热重载 / 动态 `DynamicBackendStore`）+ 异步任务结果导出，能力各自 `@ConditionalOnProperty` 按需开关；单 Maven 模块 + 新增 `admin`/`portal` 包，gateway-core 零 K8S 依赖不变）。
-配套产出：`research.md`（Phase 0 决策 R1–R9）、`data-model.md`（增量 DTO）、`contracts/admin-api-contract.md` + `contracts/admin-invariants.md`、`quickstart.md`；规格见 `spec.md`；架构决策见 `docs/superpowers/specs/2026-06-25-portal-backend-management-design.md`。
+`specs/004-portal-backend-management/plan.md`（特性：portal 后端管理平台 **v2 Web 前端**——后端 Java `/admin` HTTP API + 前端 Vue 3 SPA 内嵌单 JAR；后端配置 CRUD（静态写 `backends.yaml` 热重载 / 动态 `DynamicBackendStore`）+ 异步任务结果导出，能力各自 `@ConditionalOnProperty` 按需开关；单 Maven 模块 + 新增 `admin` 包 + `web/` 前端目录，gateway-core 零 K8S 依赖不变；前端=展示层、核心逻辑 Java 后端）。
+配套产出：`research.md`（R1–R13）、`data-model.md`（增量 DTO）、`contracts/admin-api-contract.md` + `contracts/admin-invariants.md`（含 I-8 前端同源）、`quickstart.md`；规格见 `spec.md`；架构决策见 `docs/superpowers/specs/2026-06-25-portal-backend-management-design.md`。
 上一特性基线（回归对照）：`specs/003-k8s-arthas-mcp-launch/`（更早 `specs/002-code-review-remediation/`、`specs/001-arthas-mcp-gateway/`）。
 <!-- SPECKIT END -->

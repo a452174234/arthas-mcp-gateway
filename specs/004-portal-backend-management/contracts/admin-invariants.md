@@ -37,3 +37,9 @@
 
 `BackendDto.auth` 仅暴露 `mode`，**不回显** `token`/`username`/`password`（机密字段脱敏，避免经管理面泄露）。
 - **断言 INV-SECRET-1**：GET 列表/详情响应的 `auth` 不含 `token`/`username`/`password` 字段（或显式标记脱敏）。
+
+## I-8 前端同源、展示层定位（v2）
+
+前端 SPA 必须**内嵌网关 JAR、同源服务**（`vite build` → `src/main/resources/static/`，浏览器访问网关根加载），`fetch('/admin/...')` 同源（**无 CORS**）。前端仅展示（fetch + render + download），**不承载核心管理逻辑**（核心在 Java `/admin`，宪法原则六 / research.md R13）。
+- **断言 INV-WEB-1**：`./mvnw verify` 产出含前端 static 的单 JAR；浏览器访问网关根加载 SPA、同源 fetch `/admin` 成功（无 CORS 预检）。
+- **断言 INV-WEB-2**：核心校验/导出/热重载逻辑在后端 Java（ArchUnit 守护 `admin` 包承载），前端无独立业务规则（仅 fetch + render + download）。

@@ -88,9 +88,27 @@ async function onDelete(b: BackendDto) {
 </template>
 
 <style scoped>
-.summary { color: #555; }
-.error { color: #c0392b; }
-.backends-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
-.backends-table th, .backends-table td { border: 1px solid #ddd; padding: 0.3rem 0.5rem; text-align: left; }
-button { margin-right: 0.3rem; }
+.summary { color: var(--text-muted); font-size: 0.9rem; margin: 0.5rem 0 1rem 0; }
+.error { color: var(--danger); background: #fef2f2; padding: 0.6rem 0.85rem; border-radius: 0.4rem; border: 1px solid #fecaca; margin: 0.75rem 0; font-size: 0.9rem; }
+.backends-table {
+  width: 100%; border-collapse: separate; border-spacing: 0; margin: 1rem 0;
+  background: var(--card); border-radius: var(--radius); overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.backends-table th {
+  background: #f9fafb; color: var(--text-muted); font-weight: 600; font-size: 0.78rem;
+  text-transform: uppercase; letter-spacing: 0.05em; padding: 0.75rem 0.85rem;
+  text-align: left; border-bottom: 1px solid var(--border);
+}
+.backends-table td { padding: 0.7rem 0.85rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+.backends-table tbody tr:hover { background: #f9fafb; }
+.backends-table tbody tr:last-child td { border-bottom: none; }
+button {
+  padding: 0.35rem 0.8rem; border: 1px solid var(--border); background: var(--card);
+  border-radius: 0.35rem; cursor: pointer; font-size: 0.85rem; color: var(--text);
+  margin-right: 0.3rem; transition: all 0.15s ease;
+}
+button:hover { background: #f3f4f6; border-color: #d1d5db; }
+[data-testid='btn-add'] { background: var(--primary); color: #fff; border-color: var(--primary); margin-top: 0.5rem; padding: 0.5rem 1.1rem; }
+[data-testid='btn-add']:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
 </style>

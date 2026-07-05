@@ -64,3 +64,6 @@ web/node_modules/
 web/node/
 web/.npm/
 web/dist/
+
+# === Playwright MCP（浏览器自动化工具的本地页面快照，不入库） ===
+.playwright-mcp/

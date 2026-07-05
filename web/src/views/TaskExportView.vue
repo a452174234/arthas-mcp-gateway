@@ -41,22 +41,23 @@ async function query() {
 </template>
 
 <style scoped>
-.input-row {
-  display: flex;
-  gap: 0.5rem;
-  margin: 1rem 0;
-}
+.input-row { display: flex; gap: 0.5rem; margin: 1rem 0; }
 .input-row input {
-  flex: 1;
-  padding: 0.2rem;
+  flex: 1; padding: 0.55rem 0.75rem; border: 1px solid var(--border);
+  border-radius: 0.4rem; font-size: 0.9rem; background: #fff;
 }
-.error {
-  color: #c0392b;
+.input-row input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+.input-row button {
+  padding: 0.55rem 1.3rem; background: var(--primary); color: #fff;
+  border: none; border-radius: 0.4rem; cursor: pointer; font-size: 0.9rem;
+  transition: all 0.15s ease;
 }
+.input-row button:hover { background: var(--primary-dark); }
+.error { color: var(--danger); background: #fef2f2; padding: 0.6rem 0.85rem; border-radius: 0.4rem; border: 1px solid #fecaca; margin: 0.75rem 0; font-size: 0.9rem; }
 .result {
-  margin-top: 1rem;
-  padding: 0.8rem;
-  border: 1px solid #ddd;
-  border-radius: 0.3rem;
+  margin-top: 1rem; padding: 1.2rem; background: var(--card);
+  border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm);
 }
+.result p { margin: 0.4rem 0; color: var(--text); font-size: 0.9rem; }
+.result p strong { color: var(--primary); }
 </style>

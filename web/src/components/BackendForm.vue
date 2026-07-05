@@ -90,26 +90,23 @@ function onSubmit() {
 
 <style scoped>
 .backend-form {
-  display: grid;
-  gap: 0.5rem;
+  display: grid; gap: 0.75rem; padding: 1.2rem; margin-top: 1rem;
+  background: var(--card); border-radius: var(--radius); border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
-.backend-form label {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  font-size: 0.9rem;
-}
+.backend-form label { display: flex; gap: 0.6rem; align-items: center; font-size: 0.85rem; color: var(--text-muted); }
 .backend-form input,
 .backend-form select {
-  flex: 1;
-  padding: 0.2rem;
+  flex: 1; padding: 0.45rem 0.55rem; border: 1px solid var(--border);
+  border-radius: 0.35rem; font-size: 0.9rem; background: #fff;
 }
-.dynamic-warn {
-  color: #c0392b;
-  font-size: 0.85rem;
-}
-.actions {
-  display: flex;
-  gap: 0.5rem;
-}
+.backend-form input:focus,
+.backend-form select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+.dynamic-warn { color: var(--danger); font-size: 0.82rem; background: #fef2f2; padding: 0.45rem 0.65rem; border-radius: 0.35rem; border: 1px solid #fecaca; }
+.actions { display: flex; gap: 0.5rem; margin-top: 0.25rem; }
+.actions button { padding: 0.5rem 1.1rem; font-size: 0.85rem; border-radius: 0.4rem; cursor: pointer; border: 1px solid var(--border); transition: all 0.15s ease; }
+[data-testid='form-submit'] { background: var(--primary); color: #fff; border-color: var(--primary); }
+[data-testid='form-submit']:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+[data-testid='form-cancel'] { background: var(--card); color: var(--text); }
+[data-testid='form-cancel']:hover { background: #f3f4f6; }
 </style>

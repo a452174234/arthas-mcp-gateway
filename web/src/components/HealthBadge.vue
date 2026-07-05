@@ -18,16 +18,11 @@ defineProps<{
 
 <style scoped>
 .badge {
-  display: inline-block;
-  padding: 0.1rem 0.5rem;
-  border-radius: 0.75rem;
-  font-size: 0.8rem;
-  color: #fff;
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.2rem 0.65rem; border-radius: 1rem;
+  font-size: 0.78rem; font-weight: 500;
 }
-.badge-ok {
-  background: #2a9d4a;
-}
-.badge-bad {
-  background: #c0392b;
-}
+.badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge-ok { background: #d1fae5; color: #065f46; }
+.badge-bad { background: #fee2e2; color: #991b1b; }
 </style>

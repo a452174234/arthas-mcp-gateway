@@ -77,6 +77,7 @@
 
 - **FR-010**: 所有管理操作错误必须**结构化、显式传播**（HTTP 状态码 + 错误体），不得静默成功（宪法原则五）。
 - **FR-011**: 管理面必须以 **TDD** 开发（测试先于实现），契约测试 + 真实环境零桩测试并存（宪法原则四/七）。
+- **FR-012**: 后端配置 CRUD 与异步任务导出必须各自**独立、可按需启用/关闭**（`@ConditionalOnProperty`：`arthas-gateway.admin.crud.enabled` / `arthas-gateway.admin.export.enabled`，默认 `true`）；关闭某能力时其端点不暴露（404），互不影响。
 
 ### Key Entities *(include if feature involves data)*
 
@@ -96,8 +97,8 @@
 
 - 部署在**受控内网**，MVP 管理面**无鉴权**（Noop，复用 001 `GatewayAuthenticator` 语义）；Bearer token 鉴权为演进项。
 - 复用既有：001 `BackendRegistry`/`BackendEntry`/`BackendRegistryReloader`（热重载）/`TaskStore`、003 `DynamicBackendStore`（动态注册）；本特性不重建这些，仅以管理面封装暴露。
-- **单 Maven 模块**（沿用 003 research.md R1 包级边界），新增 `com.arthas.gateway.admin`（网关侧 REST）+ `com.arthas.gateway.portal`（CLI client）两包；`gateway-core` 零 K8S 依赖不变。
+- **单 Maven 模块**（沿用 003 research.md R1 包级边界），新增 `com.arthas.gateway.admin`（网关侧 REST，下分 `backend`/`task` 子包，各自 `@ConditionalOnProperty` 按需开关）+ `com.arthas.gateway.portal`（CLI client）两包；`gateway-core` 零 K8S 依赖不变。
 - **单产物双入口**：`arthas-mcp-gateway.jar` 经 picocli 路由——默认 `serve` 起网关（诊断面 + 管理面同 JVM），`portal <sub>` 跑 CLI client（HTTP 调网关 `/admin`，执行后退出）。
 - **动态后端 MVP 不持久化**（B 后置）：portal 增/删动态后端即时生效，但网关重启后动态后端丢失（已知限制，须重 ensure）；静态后端因写回 YAML 而持久。
-- `backends.yaml` 写回保留既有种子格式与注释，MVP 管理面单用户（写回串行化，无并发锁）。
+- `backends.yaml` 写回用 SnakeYAML `dump` 重写（**不保留原文注释**，注释保留为演进项；见 research.md R2）；机密字段（token 等）写回当前解析值（占位符还原后置）。MVP 管理面单用户（写回串行化，无并发锁）。
 - 任务导出 MVP 仅 JSON 格式、仅 `completed` 任务、全量不分页（CSV/HTML/流式后置）。

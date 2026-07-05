@@ -33,6 +33,7 @@
 
 - 任何结论（行为判断、选型理由、问题归因）**必须**援引代码或文档证据，不得假设或猜测。
 - 与宪法原则八一致：实现前先研读既有代码/文档在 ./reference 文件夹中（尤其 arthas MCP 实现），吸收现有经验。
+- **查询代码优先用 `codebase-memory-mcp`**：本项目已建知识图谱（节点含调用/使用/语义关系 + 复杂度/循环热点信号）。凡查代码——找定义/实现/引用、追调用者与被调用者、看依赖与调用链、定位架构模块与热点路径——**优先**用 `codebase-memory-mcp`（`search_graph` 全文检索 / `search_code` grep+图增强 / `trace_path` 调用链 / `get_architecture` 架构聚类 / `query_graph` Cypher），而非裸 `grep`/`glob`：图能跨文件去重、按结构重要性排序、还原多跳调用链，效率与完整度优于线性文本搜索。**已知限制**：`search_code` 的原文摘录在 Windows 上以 GBK 解码中文会乱码——查中文文档/注释原文改用 `Read` 工具直接读文件，不走图谱 grep 管道（代码符号为英文，不受影响）。
 
 ### 先研究、再规划、后实现
 
@@ -59,7 +60,7 @@
 
 <!-- SPECKIT START -->
 如需了解本项目当前使用的技术、项目结构、shell 命令与其他重要信息，请阅读当前实现计划：
-`specs/003-k8s-arthas-mcp-launch/plan.md`（特性：K8S 目标 arthas MCP 启动与纳管——对指定 K8S pod 幂等拉起 arthas MCP + NodePort 暴露 + 动态纳管 + 经网关诊断；单 Maven 模块 + 包级边界，新增 `orchestration` 包与 3 个编排 MCP 工具）。
-配套产出：`research.md`（Phase 0 决策 R1–R8）、`data-model.md`（增量）、`contracts/k8s-orchestration-tools-contract.md` + `contracts/dynamic-registration-invariants.md`、`quickstart.md`；架构决策见 `docs/superpowers/specs/2026-06-22-k8s-arthas-mcp-launch-design.md`。
-上一特性基线（回归对照）：`specs/002-code-review-remediation/`（更早 `specs/001-arthas-mcp-gateway/`）。
+`specs/004-portal-backend-management/plan.md`（特性：portal 后端管理平台——单 JAR 双入口（picocli：`serve` 起网关 / `portal` 跑 CLI）+ `/admin` HTTP 管理 API；后端配置 CRUD（静态写 `backends.yaml` 热重载 / 动态 `DynamicBackendStore`）+ 异步任务结果导出，能力各自 `@ConditionalOnProperty` 按需开关；单 Maven 模块 + 新增 `admin`/`portal` 包，gateway-core 零 K8S 依赖不变）。
+配套产出：`research.md`（Phase 0 决策 R1–R9）、`data-model.md`（增量 DTO）、`contracts/admin-api-contract.md` + `contracts/admin-invariants.md`、`quickstart.md`；规格见 `spec.md`；架构决策见 `docs/superpowers/specs/2026-06-25-portal-backend-management-design.md`。
+上一特性基线（回归对照）：`specs/003-k8s-arthas-mcp-launch/`（更早 `specs/002-code-review-remediation/`、`specs/001-arthas-mcp-gateway/`）。
 <!-- SPECKIT END -->

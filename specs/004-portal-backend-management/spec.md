@@ -81,6 +81,7 @@
 
 - **FR-013**: 后端管理面与前端必须以 **TDD** 开发（测试先于实现），契约测试 + 真实零桩测试并存（宪法原则四/七）。
 - **FR-014**: 后端 CRUD 与任务导出必须各自**独立、可按需启用/关闭**（`@ConditionalOnProperty`：`arthas-gateway.admin.crud.enabled`/`admin.export.enabled`，默认 `true`）；关闭某能力时后端端点 404、前端对应页面降级提示，互不影响。
+- **FR-015**（增量）：`GET /admin/tasks` 必须返回异步任务**摘要列表**（`taskId/tool/target/status/createdAt/completedAt/isError`，**不含 frames**），支持 `status`/`tool`/`target` 可选过滤 + `page`/`size` 标准分页（响应含 `total`），按 `createdAt` 倒序——运维可浏览/定位任务而非仅按 taskId 导出。开关复用 `arthas-gateway.admin.export.enabled`（关则与 export 同 404，INV-LIST-4）。
 
 ### Key Entities
 
@@ -97,6 +98,7 @@
 - **SC-003**: portal 后端列表的健康/熔断状态与 `/actuator/health` details 一致（原则五）。
 - **SC-004**: 管理面（`/admin` + SPA）全量操作期间，诊断面 `/mcp` 既有 38 工具与双侧契约不受影响（回归不破 001/002/003）。
 - **SC-005**: `./mvnw verify` 一条命令产出含前端 SPA 的单 JAR，浏览器访问网关根加载 portal（CI 可复现）。
+- **SC-006**（增量）：portal `/tasks` 页列表区可浏览异步任务（自动查首页 + status 过滤 + 分页 + 点列表项填 taskId 衔接导出）；列表/过滤/分页/排序经真实 ContractIT + Playwright 端到端自验证。
 
 ## Assumptions
 

@@ -17,28 +17,29 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 004 能力开关端到端 IT（T029，admin-invariants INV-SWITCH-1）。
+ * 004 增量 任务能力开关端到端 IT（T039，admin-invariants INV-LIST-4 / INV-SWITCH-2）。
  *
- * <p>admin.crud.enabled=false + admin.export.enabled=true：后端 CRUD 端点缺失
- * （Controller 不装配 → Spring 无映射 → 404 无错误体），任务导出端点存在
- * （未知任务 → 404 + task_not_found 错误体）。两者独立、互不影响。
+ * <p>{@code admin.export.enabled=false} + {@code admin.crud.enabled=true}：
+ * <b>列表与导出共用 {@code export.enabled} 开关</b>，关则 {@code GET /admin/tasks}（列表）
+ * 与 {@code GET /admin/tasks/{id}/export}（导出）**同 404**（Controller 不装配 → Spring 默认 404 无错误体）；
+ * 后端 CRUD 不受影响（{@code GET /admin/backends} 200）。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "arthas-gateway.admin.crud.enabled=false",
-        "arthas-gateway.admin.export.enabled=true"
+        "arthas-gateway.admin.crud.enabled=true",
+        "arthas-gateway.admin.export.enabled=false"
 })
-class AdminCapabilitySwitchIT {
+class AdminExportSwitchIT {
 
     private static final Path BACKENDS_FILE;
 
     static {
         try {
-            BACKENDS_FILE = Files.createTempFile("backends-switch-it", ".yaml");
+            BACKENDS_FILE = Files.createTempFile("backends-export-switch-it", ".yaml");
             Files.writeString(BACKENDS_FILE, """
                     version: 1
                     backends:
                       - name: order-service
-                        url: http://127.0.0.1:8563
+                        url: http://127.0.0.1:8571
                         protocol: STREAMABLE
                         auth: { mode: NONE }
                         connectTimeoutMs: 5000
@@ -66,26 +67,24 @@ class AdminCapabilitySwitchIT {
     }
 
     @Test
-    void crudDisabled_backendsEndpointMissing404_invSwitch1() throws Exception {
-        HttpResponse<String> r = get("/admin/backends");
-        assertThat(r.statusCode()).isEqualTo(404);
-        // Controller 未装配 → Spring 默认 404（无管理面错误体 reason）
-        assertThat(r.body()).doesNotContain("backend_not_found");
-    }
-
-    @Test
-    void exportStillEnabled_taskEndpointPresent_invSwitch1() throws Exception {
-        // export 端点存在：未知任务 → 404 + task_not_found（端点在、任务不存在）
-        HttpResponse<String> r = get("/admin/tasks/no-such/export");
-        assertThat(r.statusCode()).isEqualTo(404);
-        assertThat(r.body()).contains("task_not_found");
-    }
-
-    @Test
-    void exportStillEnabled_taskListEndpointPresent_invList4() throws Exception {
-        // 004 增量（INV-LIST-4 反向）：export 开 → GET /admin/tasks 列表端点也装配（200）
+    void exportDisabled_taskListEndpoint404_invList4() throws Exception {
         HttpResponse<String> r = get("/admin/tasks");
+        assertThat(r.statusCode()).isEqualTo(404);  // 列表端点不装配
+        assertThat(r.body()).doesNotContain("\"items\"");  // 无列表响应体
+    }
+
+    @Test
+    void exportDisabled_taskExportEndpoint404_invSwitch2() throws Exception {
+        HttpResponse<String> r = get("/admin/tasks/no-such/export");
+        assertThat(r.statusCode()).isEqualTo(404);  // 导出端点不装配
+        assertThat(r.body()).doesNotContain("task_not_found");  // Controller 未装配 → 无业务错误体
+    }
+
+    @Test
+    void crudStillEnabled_backendsEndpointPresent_invSwitch2() throws Exception {
+        // crud 开 → /admin/backends 200（与 export 开关独立）
+        HttpResponse<String> r = get("/admin/backends");
         assertThat(r.statusCode()).isEqualTo(200);
-        assertThat(r.body()).contains("\"items\"");
+        assertThat(r.body()).contains("\"backends\"");
     }
 }

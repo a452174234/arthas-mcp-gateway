@@ -61,7 +61,19 @@ arthas-gateway:
 
 ---
 
-## 5. 回归对照（不得破 001/002/003）
+## 5. 场景 E：异步任务列表查询（增量，FR-015 / SC-006）
+
+1. 触发几个异步任务（经 `watch`/`trace` 等）→ portal → 「任务导出」页 → 上方「最近任务」列表区**自动加载首页**（`onMounted`）。
+2. **列表**（A-LIST-TASKS-1）：表格显示任务摘要（`taskId/tool/target/status/createdAt/completedAt/isError`，**无 frames** INV-LIST-1），按 `createdAt` **倒序**；`total` = 过滤后总数（INV-LIST-2）。
+3. **过滤**（A-LIST-TASKS-2）：status 下拉切 `WORKING`/`COMPLETED`/`FAILED`/`CANCELLED` → 重查第一页；可叠加 `?tool=`/`?target=`（URL 直查，精确匹配）。
+4. **分页**：`size` 默认 20（上限 100，超 clamp），翻页递增 `page`；末页按钮自动 disabled。
+5. **点列表项衔接导出**：点行 → 自动填 taskId + 触发查询 → 显示 frames 数 + 「下载 JSON」（复用场景 B 导出流）。
+6. **空态/错误态**（自验证反馈）：无任务显「暂无任务」；端点故障显错误提示（不白屏）。
+7. **开关**（INV-LIST-4）：`arthas-gateway.admin.export.enabled=false` → `/admin/tasks` 列表与 `/{id}/export` **同 404**。
+
+---
+
+## 6. 回归对照（不得破 001/002/003）
 
 ```bash
 ./mvnw verify
@@ -71,12 +83,13 @@ arthas-gateway:
 
 ---
 
-## 6. 验证清单（Done Definition）
+## 7. 验证清单（Done Definition）
 
 - [ ] 场景 A 后端 CRUD（Web UI）：静态写 YAML 热重载（A-ADD-1）、动态不可改可删（INV-DYN-1）、列表健康一致（SC-003）、脱敏（INV-SECRET-1）。
 - [ ] 场景 B 任务导出（Web UI）：completed 原样下载（A-EXP-1/INV-EXP-1）、未完成/不存在→409/404（A-EXP-2）。
 - [ ] 场景 C 能力开关：crud/export 独立，关闭=404+前端降级（INV-SWITCH-1/2）。
 - [ ] 场景 D 构建一体化：`./mvnw verify` 出含前端单 JAR（SC-005）。
+- [ ] 场景 E 任务列表查询：摘要无 frames（INV-LIST-1）、createdAt 倒序（INV-LIST-3）、`total`=过滤后（INV-LIST-2）、status/tool/target 过滤 + 分页（A-LIST-TASKS-1/2）、点列表项衔接导出、空态/错误态可见（自验证）、`export.enabled=false` 同 404（INV-LIST-4）。
 - [ ] 回归：001/002/003 + 38 工具契约不破（INV-ISOL-1/SC-004）。
 - [ ] gateway-core 零 K8S 依赖不变（003 `PackageBoundaryTest`）。
 - [ ] 前端=展示层（核心逻辑 Java 后端，原则六对齐，R13）。

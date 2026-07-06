@@ -39,7 +39,24 @@
 - **断言 A-DEL-1**：删除后 `list-targets` 不再含该 target（静态经热重载 / 动态即时）。
 - **断言 A-DEL-2**：删除 in-flight 后端经 002 `retirementGrace` 宽限切断（不破坏韧性）。
 
-## 2. 异步任务结果导出（`/admin/tasks/{taskId}/export`）
+## 2. 异步任务（`/admin/tasks`）
+
+### GET `/admin/tasks` — 列表查询（增量，FR-015）
+
+- **查询参数（全可选）**：
+  - `status`（enum: `WORKING`/`COMPLETED`/`FAILED`/`CANCELLED`）：状态过滤，复用 `TaskStore.list(TaskState)`；缺省=全部
+  - `tool`（string）：工具名**精确**匹配（如 `watch`）
+  - `target`（string）：target 名**精确**匹配（如 `debian-demo-business`）
+  - `page`（int ≥ 0，默认 `0`）：页码（0-based）
+  - `size`（int 1..100，默认 `20`）：每页条数；`>100` clamp 100、`<1` 取 1
+- **响应 200**：`{ "items": [TaskSummaryDto], "total": N, "page": P, "size": S }`
+  - `items`：当前页摘要，按 `createdAt` **倒序**（最新在前）
+  - `total`：**过滤后、分页前**的总数（分页元数据独立）
+  - `TaskSummaryDto`：`taskId`/`tool`/`target`/`status`/`createdAt`/`completedAt`/`isError`（**无 frames**，INV-LIST-1；`isError` 仅 `COMPLETED` 时据 `result.isError()`，其余态 `false`）
+- **行为**：空结果返 200 + `items=[]`/`total=0`（**非 404**）；`page`/`size` 越界 clamp（不报 400）。
+- **断言 A-LIST-TASKS-1**：`items` 按 `createdAt` 倒序；`total` = 过滤后总数（与分页独立，INV-LIST-2/3）。
+- **断言 A-LIST-TASKS-2**：`status`/`tool`/`target` 组合过滤后，`items` 仅含匹配项，`total` 同步反映。
+- **能力开关**：`arthas-gateway.admin.export.enabled`（与 export 共用，关则 404，INV-LIST-4）。
 
 ### GET `/admin/tasks/{taskId}/export?format=json` — 导出
 

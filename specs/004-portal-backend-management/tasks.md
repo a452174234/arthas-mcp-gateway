@@ -120,6 +120,36 @@
 
 ---
 
+## Phase 6: 增量 — 异步任务列表查询（FR-015 / SC-006）
+
+**Goal**: 后端 `GET /admin/tasks` 列表查询（摘要 + 三维度过滤 + 标准分页 + createdAt 倒序）+ 前端 `/tasks` 页列表区（自验证：空态/错误态/加载态可见反馈，点列表项填 taskId 衔接现有导出流）。
+
+**Independent Test**: 触发几个真实任务 → portal `/tasks` 页列表区自动展示 → status 过滤 / 翻页 → 点列表项填 taskId → 导出 JSON。
+
+> **TDD + 真实零桩**：Service 单测 mock TaskStore 边界（存储已验证）；ContractIT 真实 Spring + 真实 TaskStore Bean + JDK HttpClient 赸实 HTTP；前端 vitest。
+
+### 后端（测试先于实现）
+
+- [X] T033 [P] Write failing `TaskSummaryDtoTest` in `src/test/java/com/arthas/gateway/admin/task/dto/TaskSummaryDtoTest.java`（7 字段、**无 frames** INV-LIST-1、isError 映射：COMPLETED 据 `result.isError()`、其余态 false）
+- [X] T034 Implement `TaskSummaryDto` in `src/main/java/com/arthas/gateway/admin/task/dto/TaskSummaryDto.java`（record，green for T033）
+- [X] T035 [P] Write failing `TaskListServiceTest` in `src/test/java/com/arthas/gateway/admin/task/TaskListServiceTest.java`（status/tool/target 过滤组合、createdAt 倒序 INV-LIST-3、page/size 分页、`total`=过滤后 INV-LIST-2、size `>100` clamp 100 / `<1` 取 1）
+- [X] T036 Implement `TaskListService` in `src/main/java/com/arthas/gateway/admin/task/TaskListService.java`（green for T035）
+- [X] T037 Extend `TaskExportController` 加 `GET /admin/tasks` list 端点 in `src/main/java/com/arthas/gateway/admin/task/TaskExportController.java`（query 参数 → `service.list` → `{items,total,page,size}` 响应；同 controller 同开关 INV-LIST-4）
+- [X] T038 [P] Write failing `TaskListContractIT` in `src/test/java/com/arthas/gateway/admin/task/TaskListContractIT.java`（failsafe `*IT`，真实 Spring + 真实 TaskStore + JDK HttpClient：put 真实 GatewayTask → A-LIST-TASKS-1 倒序/total、A-LIST-TASKS-2 过滤组合、分页元数据一致、空结果 200）
+- [X] T039 Extend `AdminCapabilitySwitchIT` in `src/test/java/com/arthas/gateway/admin/AdminCapabilitySwitchIT.java`（`export.enabled=false` → `GET /admin/tasks` 也 404 INV-LIST-4，开关层自验证）
+
+### 前端（测试先于实现）
+
+- [X] T040 [P] Write failing 前端测试 in `web/src/__tests__/views/TaskExportView.test.ts`（扩：列表区渲染 + 自动查首页 + status 过滤切换 + 分页交互 + 点项填 taskId + **空态/错误态可见反馈**）
+- [X] T041 Implement 前端列表区 in `web/src/views/TaskExportView.vue` + 扩 `web/src/api/adminClient.ts`（`listTasks(params)` + `TaskSummaryDto`/`TaskSummaryPage` 类型；空态/错误态/加载态自验证反馈；green for T040）
+
+### 自验证
+
+- [X] T042 Playwright 端到端自验证（真实零桩）：启 arthas（`k8s.ensure-arthas-mcp`）→ 触发真实 `watch`/`jvm` 任务 → portal `/tasks` 页列表区展示 → status 过滤 + 翻页 → 点列表项填 taskId 导出（SC-006）
+- [X] T043 [P] Update docs：`quickstart.md` 加场景 E（浏览任务列表 → 过滤 → 点项导出）；README 补列表查询能力（宪法"每项新能力必须有文档"）
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

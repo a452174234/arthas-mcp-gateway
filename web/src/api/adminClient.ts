@@ -139,3 +139,44 @@ export function downloadTaskExport(taskId: string): void {
   a.download = `${taskId}.json`
   a.click()
 }
+
+// ===== 任务列表（增量，admin-api-contract §2 GET /admin/tasks，FR-015）=====
+
+/** 任务摘要（无 frames，INV-LIST-1）。 */
+export interface TaskSummaryDto {
+  taskId: string
+  tool: string
+  target: string
+  status: string
+  createdAt: string
+  completedAt: string
+  isError: boolean
+}
+
+/** 列表分页响应（items 当前页 + total 过滤后总数，INV-LIST-2）。 */
+export interface TaskSummaryPage {
+  items: TaskSummaryDto[]
+  total: number
+  page: number
+  size: number
+}
+
+export interface ListTasksParams {
+  status?: string
+  tool?: string
+  target?: string
+  page?: number
+  size?: number
+}
+
+/** GET /admin/tasks 列表查询（status/tool/target 过滤 + page/size 分页）。 */
+export function listTasks(params: ListTasksParams = {}): Promise<TaskSummaryPage> {
+  const qs = new URLSearchParams()
+  if (params.status) qs.set('status', params.status)
+  if (params.tool) qs.set('tool', params.tool)
+  if (params.target) qs.set('target', params.target)
+  if (params.page != null) qs.set('page', String(params.page))
+  if (params.size != null) qs.set('size', String(params.size))
+  const query = qs.toString()
+  return request<TaskSummaryPage>(`/tasks${query ? '?' + query : ''}`)
+}

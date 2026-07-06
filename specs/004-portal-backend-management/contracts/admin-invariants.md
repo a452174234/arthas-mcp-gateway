@@ -43,3 +43,12 @@
 前端 SPA 必须**内嵌网关 JAR、同源服务**（`vite build` → `src/main/resources/static/`，浏览器访问网关根加载），`fetch('/admin/...')` 同源（**无 CORS**）。前端仅展示（fetch + render + download），**不承载核心管理逻辑**（核心在 Java `/admin`，宪法原则六 / research.md R13）。
 - **断言 INV-WEB-1**：`./mvnw verify` 产出含前端 static 的单 JAR；浏览器访问网关根加载 SPA、同源 fetch `/admin` 成功（无 CORS 预检）。
 - **断言 INV-WEB-2**：核心校验/导出/热重载逻辑在后端 Java（ArchUnit 守护 `admin` 包承载），前端无独立业务规则（仅 fetch + render + download）。
+
+## I-9 异步任务列表（增量，FR-015）
+
+`GET /admin/tasks` 列表查询必须满足：摘要纯（无 frames）、分页元数据一致、排序确定、与导出端点同开关。
+
+- **断言 INV-LIST-1**：`TaskSummaryDto` **禁含 `frames`**（摘要纯；frames 仅由 `/admin/tasks/{id}/export` 提供，INV-EXP-1）。
+- **断言 INV-LIST-2**：`total` = 过滤后、分页前的总数（与 `items` 分页独立；`items.length ≤ size`，但 `total` 可大于 `items.length`）。
+- **断言 INV-LIST-3**：`items` 按 `createdAt` **倒序**（最新在前）；同 createdAt 顺序不依赖（taskId 去重由 TaskStore 保证）。
+- **断言 INV-LIST-4**：`arthas-gateway.admin.export.enabled=false` → `GET /admin/tasks` 与 `GET /admin/tasks/{id}/export` **同 404**（与 export 共用开关，yaml 驱动）。

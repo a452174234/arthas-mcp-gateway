@@ -37,6 +37,8 @@ arthas 是 Java 生态最强的在线诊断工具，但每个目标 JVM 各起�
 
 ## 构建与运行
 
+> 📋 **新环境快速启动 + 全面验证 MCP 可用**（含**远端 K8S 调用场景**设计、测试用例分层、能力矩阵）→ 详见 **[docs/getting-started.md](./docs/getting-started.md)**。本节为极简版。
+
 ```bash
 # 构建（本地与 CI 同命令）—— 含 surefire 单测 + failsafe 真实 arthas 集成测试
 ./mvnw clean verify

@@ -59,12 +59,12 @@
 
 ### 测试先于实现
 
-- [ ] T009 [P] [US1] Write failing `NodePortExposerTest` in `src/test/java/com/arthas/gateway/orchestration/NodePortExposerTest.java`（mock KubernetesClient：① labelSelector 查带 label 的 Service；② 命中 NodePort → patch 加端口不新建；③ 命中 ClusterIP → patch type=NodePort + 加端口（K-ENS-11）；④ 已含同 targetPort → 复用 nodePort 幂等（K-ENS-12）；⑤ 找不到 → 回退新建独立 Service（K-ENS-10 回退））
-- [ ] T010 [P] [US1] Write failing `NodePortExposerContractIT` in `src/test/java/com/arthas/gateway/orchestration/NodePortExposerContractIT.java`（failsafe *IT，真实 k3s：① 业务 Service 预打 `arthas-mcp-gateway/target=<logical>` label → ensure 复用 patch（K-ENS-10）；② ClusterIP 业务 Service → 自动改 NodePort（K-ENS-11）；③ 重复 ensure → ports 不变（K-ENS-12）；④ 无 label → 回退新建）
+- [X] T009 [P] [US1] Write failing `NodePortExposerTest` in `src/test/java/com/arthas/gateway/orchestration/NodePortExposerTest.java`（mock KubernetesClient：① labelSelector 查带 label 的 Service；② 命中 NodePort → patch 加端口不新建；③ 命中 ClusterIP → patch type=NodePort + 加端口（K-ENS-11）；④ 已含同 targetPort → 复用 nodePort 幂等（K-ENS-12）；⑤ 找不到 → 回退新建独立 Service（K-ENS-10 回退））
+- [X] T010 [P] [US1] Write failing `NodePortExposerContractIT` in `src/test/java/com/arthas/gateway/orchestration/NodePortExposerContractIT.java`（failsafe *IT，真实 k3s：① 业务 Service 预打 `arthas-mcp-gateway/target=<logical>` label → ensure 复用 patch（K-ENS-10）；② ClusterIP 业务 Service → 自动改 NodePort（K-ENS-11）；③ 重复 ensure → ports 不变（K-ENS-12）；④ 无 label → 回退新建）
 
 ### 实现
 
-- [ ] T011 [US1] Implement NodePortExposer.expose 改造 in `src/main/java/com/arthas/gateway/orchestration/NodePortExposer.java`（新增 `findLabeledService(ns, labelValue)` labelSelector 查 + `patchServiceAddNodePort(svc, mcpPort)` patch type+端口 + 命中复用/未命中回退 `ensureNodePortService`（003 现状）；green for T009/T010）
+- [X] T011 [US1] Implement NodePortExposer.expose 改造 in `src/main/java/com/arthas/gateway/orchestration/NodePortExposer.java`（新增 `findLabeledService(ns, labelValue)` labelSelector 查 + `patchServiceAddNodePort(svc, mcpPort)` patch type+端口 + 命中复用/未命中回退 `ensureNodePortService`（003 现状）；green for T009/T010）
 
 **Checkpoint (US1)**: 业务 Service 打 label → ensure 复用 patch；无 label → 回退新建（兼容）。
 

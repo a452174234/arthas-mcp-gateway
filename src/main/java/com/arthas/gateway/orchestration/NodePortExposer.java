@@ -7,10 +7,13 @@ import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodBuilder;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceBuilder;
+import io.fabric8.kubernetes.api.model.ServicePort;
+import io.fabric8.kubernetes.api.model.ServicePortBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -62,13 +65,26 @@ public final class NodePortExposer {
         Objects.requireNonNull(pod, "pod 不可为空");
         Objects.requireNonNull(logicalName, "logicalName 不可为空");
         String labelValue = sanitizeLabelValue(logicalName);
-        String serviceName = sanitizeServiceName(SERVICE_PREFIX + labelValue);
 
-        // 1. label pod（幂等覆盖）
+        // 1. label pod（幂等覆盖；selector 精确命中该 pod）
         labelPod(namespace, pod, labelValue);
 
-        // 2. create-or-get NodePort Service（selector 命中该 label）
-        int nodePort = ensureNodePortService(namespace, serviceName, labelValue, mcpPort);
+        // 2. 优先复用带 label 的现有 Service（patch type+端口，K-ENS-10/11）；
+        //    找不到回退新建独立 Service（003 现状，K-ENS-10 回退，向后兼容）
+        Service labeled = findLabeledService(namespace, labelValue);
+        String serviceName;
+        int nodePort;
+        if (labeled != null) {
+            serviceName = labeled.getMetadata().getName();
+            nodePort = patchServiceAddNodePort(labeled, namespace, mcpPort);
+            log.info("复用带 label 的现有 Service（K-ENS-10/11）：{}/{} → port {}（patch）",
+                    namespace, serviceName, nodePort);
+        } else {
+            serviceName = sanitizeServiceName(SERVICE_PREFIX + labelValue);
+            nodePort = ensureNodePortService(namespace, serviceName, labelValue, mcpPort);
+            log.info("未找到带 label 的 Service，回退新建独立 Service（K-ENS-10 回退）：{}/{}",
+                    namespace, serviceName);
+        }
 
         // 3. 解析 nodeIP → mcpUrl
         String nodeIp = resolveNodeIp();
@@ -77,6 +93,89 @@ public final class NodePortExposer {
         log.info("NodePort 已暴露：{}/{} → {}（service={} nodePort={}）",
                 namespace, pod, mcpUrl, serviceName, nodePort);
         return new ExposeResult(serviceName, nodePort, mcpUrl, serviceRef);
+    }
+
+    /**
+     * 查带 {@code arthas-mcp-gateway/target=<labelValue>} label 的现有 Service（005 US1，K-ENS-10）。
+     *
+     * <p>运维在业务 Service 上预打该 label 即声明「由网关复用暴露 NodePort」，ensure 优先 patch 它而非新建。
+     * labelSelector 查询（{@code services().inNamespace(ns).withLabel(k, v).list()}）。
+     *
+     * @return 命中的第一个带 label Service（多个取首）；无则 null（触发回退新建）
+     */
+    Service findLabeledService(String namespace, String labelValue) {
+        List<Service> svcs = client.services().inNamespace(namespace)
+                .withLabel(TARGET_LABEL_KEY, labelValue).list().getItems();
+        return (svcs == null || svcs.isEmpty()) ? null : svcs.get(0);
+    }
+
+    /**
+     * 在现有 Service 上 patch 出 NodePort（005 US1，K-ENS-11/12）。
+     *
+     * <ul>
+     *   <li><b>K-ENS-12 幂等</b>：已是 NodePort 且含同 targetPort 端口 → 复用既有 nodePort（不重复 patch）。</li>
+     *   <li><b>K-ENS-11</b>：否则 PUT 改 {@code type=NodePort}（ClusterIP→NodePort）+ 加端口，
+     *       K8S 在 nodePortRange 内分配 nodePort；既有端口随之暴露到节点。</li>
+     * </ul>
+     *
+     * @return 该 targetPort 对应的 nodePort（复用或新分配）
+     */
+    int patchServiceAddNodePort(Service svc, String namespace, int mcpPort) {
+        String name = svc.getMetadata().getName();
+        // 幂等：已有 targetPort=mcpPort 的 NodePort 端口 → 复用既有 nodePort（K-ENS-12）
+        Integer existing = nodePortForTargetPort(svc, mcpPort);
+        if (existing != null) {
+            log.info("Service {}/{} 已含 NodePort targetPort={} → 复用 nodePort={}（K-ENS-12 幂等）",
+                    namespace, name, mcpPort, existing);
+            return existing;
+        }
+        // patch type=NodePort（K-ENS-11）+ 确保有 targetPort=mcpPort 端口：复用既有该端口（K8S 为其分配 nodePort），
+        // 仅有该端口缺失时才加。多端口 Service 每个端口须有 name，故为无名端口补 name（仅 K8S 内部唯一性所需，不影响业务）。
+        List<ServicePort> ports = new ArrayList<>();
+        boolean hasMcpPort = false;
+        int idx = 0;
+        if (svc.getSpec() != null && svc.getSpec().getPorts() != null) {
+            for (ServicePort p : svc.getSpec().getPorts()) {
+                ServicePort copy = new ServicePortBuilder(p).build();
+                if (copy.getName() == null || copy.getName().isBlank()) {
+                    copy.setName("port-" + idx);
+                }
+                Integer tp = copy.getTargetPort() != null ? copy.getTargetPort().getIntVal() : null;
+                if (tp != null && tp == mcpPort) {
+                    hasMcpPort = true;
+                }
+                ports.add(copy);
+                idx++;
+            }
+        }
+        if (!hasMcpPort) {
+            ports.add(new ServicePortBuilder().withName("arthas-mcp-" + mcpPort)
+                    .withPort(mcpPort).withNewTargetPort(mcpPort).build());
+        }
+        Service toPatch = new ServiceBuilder(svc).editSpec()
+                .withType("NodePort").withPorts(ports).endSpec().build();
+        Service patched = client.services().inNamespace(namespace).resource(toPatch).update();
+        Integer np = nodePortForTargetPort(patched, mcpPort);
+        if (np == null) {
+            throw new IllegalStateException("patch 后未取到 nodePort（service=" + namespace + "/" + name
+                    + "）：K8S 未分配 nodePort");
+        }
+        log.info("Service {}/{} patch 为 NodePort（K-ENS-11）→ 分配 nodePort={}", namespace, name, np);
+        return np;
+    }
+
+    /** 取 Service 中 targetPort=指定值的端口 nodePort（幂等复用判定，K-ENS-12）。 */
+    private static Integer nodePortForTargetPort(Service svc, int targetPort) {
+        if (svc == null || svc.getSpec() == null || svc.getSpec().getPorts() == null) {
+            return null;
+        }
+        for (var p : svc.getSpec().getPorts()) {
+            Integer tp = (p.getTargetPort() != null) ? p.getTargetPort().getIntVal() : null;
+            if (tp != null && tp == targetPort && p.getNodePort() != null) {
+                return p.getNodePort();
+            }
+        }
+        return null;
     }
 
     /** 删除供给时建的 NodePort Service（清理副作用，幂等）。 */

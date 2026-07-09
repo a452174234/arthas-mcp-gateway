@@ -60,7 +60,7 @@
 
 <!-- SPECKIT START -->
 如需了解本项目当前使用的技术、项目结构、shell 命令与其他重要信息，请阅读当前实现计划：
-`specs/004-portal-backend-management/plan.md`（特性：portal 后端管理平台 **v2 Web 前端**——后端 Java `/admin` HTTP API + 前端 Vue 3 SPA 内嵌单 JAR；后端配置 CRUD（静态写 `backends.yaml` 热重载 / 动态 `DynamicBackendStore`）+ 异步任务结果导出，能力各自 `@ConditionalOnProperty` 按需开关；单 Maven 模块 + 新增 `admin` 包 + `web/` 前端目录，gateway-core 零 K8S 依赖不变；前端=展示层、核心逻辑 Java 后端）。
-配套产出：`research.md`（R1–R13）、`data-model.md`（增量 DTO）、`contracts/admin-api-contract.md` + `contracts/admin-invariants.md`（含 I-8 前端同源）、`quickstart.md`；规格见 `spec.md`；架构决策见 `docs/superpowers/specs/2026-06-25-portal-backend-management-design.md`。
-上一特性基线（回归对照）：`specs/003-k8s-arthas-mcp-launch/`（更早 `specs/002-code-review-remediation/`、`specs/001-arthas-mcp-gateway/`）。
+`specs/005-k8s-orchestration-iteration/plan.md`（特性：K8S 编排能力迭代——① ensure 的 NodePort 暴露从「新建独立 Service」改为「复用带 `arthas-mcp-gateway/target` label 的现有 Service（patch type+端口），找不到回退新建」；② 后端配置 K8S 场景：新增 K8S Host 配置实体（`arthas-gateway.k8s-hosts`，远端 Linux 入口），BackendConfig 加 `k8sHost`+`pod`（K8S 模式，与 url 互斥），首次路由懒 resolve（`BackendResolver` 接口 gateway-core 定义 / `K8sBackendResolver` orchestration 实现）；③ JDK 适配 SPI（`ArthasLauncher` 策略接口 + `DefaultArthasLauncher` 默认 + 用户 `@Primary` 实现定制 javaPath/完整命令模板 + test fixture 真实实现 TDD）；零 gateway-core K8S 依赖不变（ArchUnit 守护），003 既有契约全部不破）。
+配套产出：`research.md`（R1–R9）、`data-model.md`（K8sHost/BackendConfig 增量/BackendResolver/ArthasLauncher/LaunchContext）、`contracts/orchestration-iteration-invariants.md`（K-ENS-10/11/12 + INV-K8SHOST-* + INV-LAUNCHER-*）、`quickstart.md`；规格见 `spec.md`；设计决策见 `docs/superpowers/specs/2026-07-10-k8s-orchestration-iteration-design.md`。
+上一特性基线（回归对照）：`specs/004-portal-backend-management/`（更早 `specs/003-k8s-arthas-mcp-launch/`、`specs/002-code-review-remediation/`、`specs/001-arthas-mcp-gateway/`）。
 <!-- SPECKIT END -->

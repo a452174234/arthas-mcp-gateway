@@ -25,8 +25,8 @@
 
 **Purpose**：GatewayProperties 加 K8sHost 列表 + application.yml 示例。
 
-- [ ] T001 [P] Add `K8sHost` 内部类（name + kubeconfig + namespace）+ `List<K8sHost> k8sHosts` 字段 to `src/main/java/com/arthas/gateway/config/GatewayProperties.java`（K8sHost 字段校验：name 非空、kubeconfig 非空；R4）
-- [ ] T002 [P] Add `arthas-gateway.k8s-hosts` 配置段（注释说明：远端 Linux K8S 入口，重启生效）to `src/main/resources/application.yml`
+- [X] T001 [P] Add `K8sHost` 内部类（name + kubeconfig + namespace）+ `List<K8sHost> k8sHosts` 字段 to `src/main/java/com/arthas/gateway/config/GatewayProperties.java`（K8sHost 字段校验：name 非空、kubeconfig 非空；R4）
+- [X] T002 [P] Add `arthas-gateway.k8s-hosts` 配置段（注释说明：远端 Linux K8S 入口，重启生效）to `src/main/resources/application.yml`
 
 **Checkpoint**: K8sHost 配置可绑定（启动期加载 List<K8sHost>）。
 
@@ -38,12 +38,12 @@
 
 > **TDD（宪法原则七）**：测试先写并确认失败（红），再实现至通过（绿）。
 
-- [ ] T003 [P] Write failing `ArthasLauncherTest` in `src/test/java/com/arthas/gateway/orchestration/ArthasLauncherTest.java`（LaunchContext record 字段全集 + LaunchException 携带 OrchestrationRecord.Error）
-- [ ] T004 Implement `ArthasLauncher` SPI 接口 + `LaunchContext` record + `LaunchException` in `src/main/java/com/arthas/gateway/orchestration/ArthasLauncher.java`（locatePid + startArthas 两方法；green for T003）
-- [ ] T005 [P] Write failing `DefaultArthasLauncherTest` in `src/test/java/com/arthas/gateway/orchestration/DefaultArthasLauncherTest.java`（locatePid = `jps -q | head -1`、startArthas = `java -jar arthas-boot.jar <pid> --attach-only --http-port/--target-ip/--use-version/--password`；无 PID → LaunchException no_jvm@locate_jvm；非零退出 → attach_failed@start_arthas；INV-LAUNCHER-2 兼容现状）
-- [ ] T006 Implement `DefaultArthasLauncher` in `src/main/java/com/arthas/gateway/orchestration/DefaultArthasLauncher.java`（003 既有 `ArthasProvisioner.locateJvm` + `startArthas` 逻辑外移；green for T005）
-- [ ] T007 [P] Write failing `BackendResolverTest` in `src/test/java/com/arthas/gateway/backend/BackendResolverTest.java`（接口契约：K8S 模式 config → Optional.of(mcpUrl)；静态模式 → Optional.empty()；实现用 stub 验证接口行为）
-- [ ] T008 Implement `BackendResolver` 接口 in `src/main/java/com/arthas/gateway/backend/BackendResolver.java`（`Optional<String> resolveMcpUrl(BackendConfig)`；gateway-core 定义，无 fabric8 import；green for T007）
+- [X] T003 [P] Write failing `ArthasLauncherTest` in `src/test/java/com/arthas/gateway/orchestration/ArthasLauncherTest.java`（LaunchContext record 字段全集 + LaunchException 携带 OrchestrationRecord.Error）
+- [X] T004 Implement `ArthasLauncher` SPI 接口 + `LaunchContext` record + `LaunchException` in `src/main/java/com/arthas/gateway/orchestration/ArthasLauncher.java`（locatePid + startArthas 两方法；green for T003）
+- [X] T005 [P] Write failing `DefaultArthasLauncherTest` in `src/test/java/com/arthas/gateway/orchestration/DefaultArthasLauncherTest.java`（locatePid = `jps -q | head -1`、startArthas = `java -jar arthas-boot.jar <pid> --attach-only --http-port/--target-ip/--use-version/--password`；无 PID → LaunchException no_jvm@locate_jvm；非零退出 → attach_failed@start_arthas；INV-LAUNCHER-2 兼容现状）
+- [X] T006 Implement `DefaultArthasLauncher` in `src/main/java/com/arthas/gateway/orchestration/DefaultArthasLauncher.java`（003 既有 `ArthasProvisioner.locateJvm` + `startArthas` 逻辑外移；green for T005）
+- [X] T007 [P] Write failing `BackendResolverTest` in `src/test/java/com/arthas/gateway/backend/BackendResolverTest.java`（接口契约：K8S 模式 config → Optional.of(mcpUrl)；静态模式 → Optional.empty()；实现用 stub 验证接口行为）
+- [X] T008 Implement `BackendResolver` 接口 in `src/main/java/com/arthas/gateway/backend/BackendResolver.java`（`Optional<String> resolveMcpUrl(BackendConfig)`；gateway-core 定义，无 fabric8 import；green for T007）
 
 **Checkpoint**: SPI 接口 + DefaultArthasLauncher（= 003 现状）+ BackendResolver 接口就位。US1/US2/US3 可在此之上构建。
 

@@ -3,6 +3,8 @@ package com.arthas.gateway.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 网关顶层配置（前缀 {@code arthas-gateway.*}）。绑定后端映射表文件路径与异步任务默认值。
@@ -34,6 +36,14 @@ public class GatewayProperties {
     /** portal 管理面能力开关子段（004 特性，{@code arthas-gateway.admin.*}）。 */
     private Admin admin = new Admin();
 
+    /**
+     * K8S Host 列表（005 特性，{@code arthas-gateway.k8s-hosts}）：远端 Linux K8S 集群入口声明。
+     *
+     * <p>每个 host 含独立 kubeconfig + namespace；BackendConfig 的 K8S 模式（{@code k8sHost}）引用此 name。
+     * 配置位置 = application.yml（重启生效，热重载后置，research.md R4）。MVP 按 host 建独立 provisioner（R5）。
+     */
+    private List<K8sHost> k8sHosts = new ArrayList<>();
+
     public String getBackendsFile() {
         return backendsFile;
     }
@@ -64,6 +74,14 @@ public class GatewayProperties {
 
     public void setAdmin(Admin admin) {
         this.admin = admin;
+    }
+
+    public List<K8sHost> getK8sHosts() {
+        return k8sHosts;
+    }
+
+    public void setK8sHosts(List<K8sHost> k8sHosts) {
+        this.k8sHosts = k8sHosts;
     }
 
     /** 异步任务默认值（方案 C，详见 research.md §4）。 */
@@ -227,6 +245,46 @@ public class GatewayProperties {
 
         public void setArthasPassword(String arthasPassword) {
             this.arthasPassword = arthasPassword;
+        }
+    }
+
+    /**
+     * K8S Host（005 特性）：一台被管理的远端 Linux K8S 集群入口。
+     *
+     * <p>BackendConfig 的 K8S 模式（{@code k8sHost}）引用此 {@code name}；{@link K8sBackendResolver} 据 host
+     * 的 kubeconfig 构建独立 KubernetesClient + ArthasProvisioner（research.md R5）。实体见
+     * [data-model.md §2](../../specs/005-k8s-orchestration-iteration/data-model.md)。
+     */
+    public static class K8sHost {
+        /** host 逻辑名（跨 host 唯一，BackendConfig.k8sHost 引用此名）。 */
+        private String name;
+        /** kubeconfig 文件路径（独立集群凭证；启动期校验可读）。 */
+        private String kubeconfig;
+        /** 默认 namespace（缺省 {@code default}）。 */
+        private String namespace = "default";
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getKubeconfig() {
+            return kubeconfig;
+        }
+
+        public void setKubeconfig(String kubeconfig) {
+            this.kubeconfig = kubeconfig;
+        }
+
+        public String getNamespace() {
+            return namespace;
+        }
+
+        public void setNamespace(String namespace) {
+            this.namespace = namespace;
         }
     }
 

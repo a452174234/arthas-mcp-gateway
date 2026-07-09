@@ -122,6 +122,16 @@ claude -p "列出 arthas-gw 暴露的全部工具名，仅输出 JSON 数组" \
 
 详见 [004 spec](./specs/004-portal-backend-management/spec.md)。
 
+## K8S 编排能力迭代（005）
+
+005 在 003 K8S 编排基础上做三点迭代（[设计](./docs/superpowers/specs/2026-07-10-k8s-orchestration-iteration-design.md) · [规格](./specs/005-k8s-orchestration-iteration/spec.md) · [技术手册](./docs/handbook/part4-k8s.md)）：
+
+- **Service 复用**（US1）：`ensure` 优先复用带 `arthas-mcp-gateway/target` label 的现有业务 Service（patch type+端口），无则回退新建（K-ENS-10/11/12）。运维预打 label 即声明复用，向后兼容。
+- **K8S Host 懒 resolve**（US2）：`arthas-gateway.k8s-hosts` 配远端集群入口；BackendConfig 加 `k8sHost`+`pod`（与 `url` 互斥），首次路由懒 resolve（ensure + 缓存）出 mcpUrl（INV-K8SHOST-*）。只配 K8S IP + pod，运行时刷新业务容器信息。
+- **JDK 适配 SPI**（US3）：抽 `ArthasLauncher` 策略接口（`DefaultArthasLauncher` = 003 现状）；用户写 `@Primary` 实现定制容器独立 JDK 的 javaPath / 启动命令模板（INV-LAUNCHER-*，少代码适配）。
+
+零 gateway-core K8S 依赖不变（ArchUnit 守护 INV-BOUNDARY-1/2）；003 既有契约全不破（`./mvnw verify` 346 测试全绿）。
+
 ---
 
 ## 测试（真实环境，零桩）

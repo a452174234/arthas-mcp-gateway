@@ -161,6 +161,9 @@
 | K-ENS-7 | arthas MCP 绑 loopback（`--target-ip 127.0.0.1`）→ NodePort 不可达、健康检查超时 → `reason:health_check_timeout`（验证 `0.0.0.0` 要求，[research.md R4](../research.md)） |
 | K-ENS-8 | `ensure` 期间 `target` 命名 = `{server}-{pod}`（确定性派生） |
 | K-ENS-9 | 动态 target 与静态种子同名 → `reason:name_conflict`（拒绝，保护静态） |
+| K-ENS-10 | ensure 优先复用带 `arthas-mcp-gateway/target` label 的现有 Service（patch type+端口，不新建独立 Service）；无则回退新建（005 迭代，[见 005 契约](../../005-k8s-orchestration-iteration/contracts/orchestration-iteration-invariants.md)） |
+| K-ENS-11 | 复用的 ClusterIP Service → 自动 patch `type=NodePort`（既有端口随之暴露到节点，K8S 分配 nodePort，005 迭代） |
+| K-ENS-12 | 重复 ensure 同 target → nodePort 不变、端口数量不重复增长（复用幂等，005 迭代；`NodePortExposerContractIT` 守护） |
 | K-ATOMIC-1 | `ensure` 任一子步失败 → 注册表**不含**该 target（不半注册） |
 | K-COEXIST-1 | 动态 target 纳管后，`backends.yaml` 热重载 → 动态 target **仍在**（热重载不误删，[research.md R8](../research.md)） |
 | K-COEXIST-2 | 动态 target 不可达（pod 删除）→ `list-targets` 标 unhealthy、对其诊断返明确错误；其他 target 不受影响（复用 001 故障隔离） |

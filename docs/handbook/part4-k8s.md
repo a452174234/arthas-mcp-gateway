@@ -723,4 +723,47 @@ ssh root@192.168.31.92 'kubectl delete pod demo-business'
 
 ---
 
+## 第 32 章 005 K8S 编排能力迭代（Service 复用 / K8S Host / JDK SPI）
+
+005 在 003 编排基础上做三点迭代，适配「复用现有 Service 暴露 / 远端 K8S 集群入口 / 容器独立 JDK」三类运维场景。设计见 `docs/superpowers/specs/2026-07-10-k8s-orchestration-iteration-design.md`，规格见 `specs/005-k8s-orchestration-iteration/`。
+
+### 32.1 US1 Service 复用（NodePortExposer label + patch + 回退）
+
+003 `NodePortExposer.expose` 总新建独立 `arthas-mcp-<logical>` Service。005 改为优先复用带 `arthas-mcp-gateway/target=<labelValue>` label 的现有业务 Service（运维预打 label 即声明复用）：
+
+- `findLabeledService(ns, labelValue)`：labelSelector 查带 label 的 Service。
+- `patchServiceAddNodePort(svc, mcpPort)`：复用既有 `targetPort=mcpPort` 端口（K-ENS-12 幂等），仅改 `type=NodePort`（K-ENS-11，K8S 为既有端口分配 nodePort）；多端口补 name 避免冲突。
+- 未命中 → 回退 `ensureNodePortService`（003 现状新建，K-ENS-10 回退，向后兼容）。
+
+单测 `NodePortExposerTest`（fabric8 KubernetesMockServer）+ 契约 IT `NodePortExposerContractIT`（真实 k3s：复用 30050 / ClusterIP→NodePort 30847 / 幂等 30052 / 回退 30421）。
+
+### 32.2 US2 K8S Host 配置 + BackendConfig K8S 模式 + 懒 resolve
+
+新增 `arthas-gateway.k8s-hosts` 配置（远端 Linux K8S 集群入口：name + kubeconfig + namespace）。`BackendConfig` 加 `k8sHost` + `pod`（与 `url` 互斥，INV-K8SHOST-1）——声明「远端 host + 业务 pod」，运行时懒 resolve 出 mcpUrl。
+
+- `BackendResolver` 接口（gateway-core，零 fabric8，INV-BOUNDARY-1）：`Optional<String> resolveMcpUrl(config)`。
+- `K8sBackendResolver`（orchestration，INV-BOUNDARY-2）：按 host 建 provisioner，`resolveMcpUrl` → `ArthasProvisioner.ensure` + `ConcurrentHashMap` 缓存（INV-K8SHOST-2）；静态模式旁路 empty（INV-K8SHOST-5）；未知 host → `unknown_k8s_host`（INV-K8SHOST-3）。
+- `BackendEntry.initializeOnce` 懒 resolve：K8S 模式（client=null）首调时经 `Supplier<Optional<BackendResolver>>` resolve mcpUrl → `withResolvedUrl` 建 `HttpBackendClient`；无 resolver → `no_k8s_resolver`（INV-K8SHOST-4）。
+
+装配用 `ObjectProvider` + `@Lazy`（打破 `registryHolder↔dynamicBackendStore↔backendConfigWatcher` 启动期环）。
+
+### 32.3 US3 JDK 适配 SPI（ArthasLauncher + DefaultArthasLauncher + @Primary）
+
+003 `ArthasProvisioner` 硬编码 `jps` 定位 + `java -jar` 启动（假设 PATH）。005 抽 `ArthasLauncher` SPI（locatePid + startArthas + LaunchContext），适配容器独立 JDK：
+
+- `DefaultArthasLauncher`（003 现状外移，INV-LAUNCHER-2）：PATH 的 jps + java -jar。
+- 用户写 `@Primary` 实现覆盖（INV-LAUNCHER-3）：定制 javaPath / 完整命令模板（FR-009~012）。
+- `ArthasProvisioner` 委托 launcher（删硬编码，INV-LAUNCHER-1）；`LaunchException` → failed 映射（INV-LAUNCHER-4）。
+- `LaunchContext.arthasBootJar` 为 String（非 Path，避免 Windows `\` 转换破坏远程 Linux path）。
+
+单测 `ArthasLauncherSpiTest`（spy 委托 + 异常映射）+ 契约 IT `CustomLauncherContractIT`（@Primary 覆盖）。test fixture `TestArthasLauncher`（真实实现非 mock，INV-LAUNCHER-5）。
+
+### 32.4 不变量守护
+
+- 零 gateway-core K8S 依赖不变（ArchUnit `PackageBoundaryTest` 加 BackendResolver 接口位置 + K8sBackendResolver 在 orchestration，INV-BOUNDARY-1/2）。
+- 003 契约全不破（`ArthasProvisionerIT` 5/5 回归：K-ENS-1/2/4/5/7 + K-ATOMIC-1；委托改造行为不变）。
+- 向后兼容：静态 url backend + 无 label Service + 无自定义 launcher → 行为 = 003/004 现状。
+
+---
+
 > **下一步**：Part 5 深入 004 portal 管理面（后端 CRUD/任务 + 前端 SPA + 构建）。

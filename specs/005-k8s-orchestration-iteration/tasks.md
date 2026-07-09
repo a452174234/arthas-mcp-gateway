@@ -125,11 +125,11 @@
 
 **Purpose**：包边界守护、003 回归、文档。
 
-- [ ] T027 [P] Write failing `PackageBoundaryTest` 扩展 in `src/test/java/com/arthas/gateway/architecture/PackageBoundaryTest.java`（① `backend.BackendResolver` 接口零 fabric8/kubernetes/orchestration 依赖（INV-BOUNDARY-1）；② `backend` 包不依赖 `orchestration`（既有规则强化）；③ K8sBackendResolver 在 orchestration（INV-BOUNDARY-2））
-- [ ] T028 [P] Regression guard：`./mvnw verify -DskipFrontend=true` 全绿——003 既有契约（K8sEnsureContractIT/K8sListToolsContractIT/ArthasProvisionerIT/K8sExternalGatewaySmokeTest）+ ArchUnit + 001/002/004 既有全绿（FR-013 回归门禁）
-- [ ] T029 [P] Update 003 contracts：加 K-ENS-10/11/12（Service 复用行为）to `specs/003-k8s-arthas-mcp-launch/contracts/k8s-orchestration-tools-contract.md`（指向 005 实现说明）
-- [ ] T030 [P] Update docs：README 补 005 能力（Service 复用 / K8S host 配置 / JDK SPI）+ docs/handbook/part4-k8s.md + part9-decisions.md 补 005 决策（宪法"每项新能力必须有文档"）
-- [ ] T031 Run `quickstart.md` validation：场景 A（Service 复用）+ B（K8S host 懒 resolve）+ C（自定义 launcher）+ D（回归）+ SPI test fixture，逐项核对 Done Definition
+- [X] T027 [P] Write failing `PackageBoundaryTest` 扩展 in `src/test/java/com/arthas/gateway/architecture/PackageBoundaryTest.java`（① `backend.BackendResolver` 接口零 fabric8/kubernetes/orchestration 依赖（INV-BOUNDARY-1）；② `backend` 包不依赖 `orchestration`（既有规则强化）；③ K8sBackendResolver 在 orchestration（INV-BOUNDARY-2））
+- [X] T028 [P] Regression guard：`./mvnw verify -DskipFrontend=true` 全绿——003 既有契约（K8sEnsureContractIT/K8sListToolsContractIT/ArthasProvisionerIT/K8sExternalGatewaySmokeTest）+ ArchUnit + 001/002/004 既有全绿（FR-013 回归门禁）
+- [X] T029 [P] Update 003 contracts：加 K-ENS-10/11/12（Service 复用行为）to `specs/003-k8s-arthas-mcp-launch/contracts/k8s-orchestration-tools-contract.md`（指向 005 实现说明）
+- [X] T030 [P] Update docs：README 补 005 能力（Service 复用 / K8S host 配置 / JDK SPI）+ docs/handbook/part4-k8s.md + part9-decisions.md 补 005 决策（宪法"每项新能力必须有文档"）
+- [X] T031 Run `quickstart.md` validation：场景 A（Service 复用）+ B（K8S host 懒 resolve）+ C（自定义 launcher）+ D（回归）+ SPI test fixture，逐项核对 Done Definition
 
 ---
 

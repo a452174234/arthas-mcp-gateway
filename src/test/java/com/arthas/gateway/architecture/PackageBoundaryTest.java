@@ -6,6 +6,7 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
@@ -79,6 +80,35 @@ class PackageBoundaryTest {
                 .should().dependOnClassesThat().resideInAPackage("com.arthas.gateway.admin..")
                 .because("诊断核心（/mcp）与管理面（/admin）隔离（004 INV-ISOL-1/SC-004）；"
                         + "admin 消费 backend，反向依赖禁止")
+                .check(classes);
+    }
+
+    /**
+     * 005 US2 INV-BOUNDARY-1：{@code BackendResolver} 接口 gateway-core 定义（backend 包，零 fabric8/orchestration 依赖）。
+     *
+     * <p>接口倒置——诊断核心依赖 backend.BackendResolver（零 K8S），实现在 orchestration（K8sBackendResolver）。
+     * 被 {@link #diagnosticCoreDoesNotDependOnK8sClientApi}（backend 包零 fabric8）覆盖，本规则显式锁定接口位置。
+     */
+    @Test
+    void backendResolverInterfaceResidesInBackendPackage() {
+        classes().that().haveSimpleName("BackendResolver")
+                .should().resideInAPackage("com.arthas.gateway.backend")
+                .because("005 INV-BOUNDARY-1: BackendResolver 接口 gateway-core 定义（backend 包，零 fabric8）；"
+                        + "实现在 orchestration（K8sBackendResolver），ArchUnit 锁定接口位置防漂移")
+                .check(classes);
+    }
+
+    /**
+     * 005 US2 INV-BOUNDARY-2：{@code K8sBackendResolver} 实现驻 orchestration 包（依赖 fabric8/ArthasProvisioner）。
+     *
+     * <p>确保 K8S 懒 resolve 实现（持编排依赖）不误放 gateway-core；与 BackendResolver 接口（backend 包）的倒置分离。
+     */
+    @Test
+    void k8sBackendResolverResidesInOrchestration() {
+        classes().that().haveSimpleName("K8sBackendResolver")
+                .should().resideInAPackage("com.arthas.gateway.orchestration")
+                .because("005 INV-BOUNDARY-2: K8sBackendResolver 实现在 orchestration 包（依赖 fabric8/"
+                        + "ArthasProvisioner），不漂入 gateway-core 破零 K8S 依赖")
                 .check(classes);
     }
 }

@@ -359,4 +359,33 @@
 
 ---
 
+## 第 73 章 005 K8S 编排迭代决策
+
+### R1 · Service 复用（label 标记，非新建独立 Service）
+
+- **决策**：业务 Service 预打 `arthas-mcp-gateway/target=<logical>` label → ensure patch 复用（改 type+端口），无则回退新建。
+- **理由**：用户需求（复用现有 Service 暴露新端口，非新建独立 Service）；label 标记零侵入（运维预打即声明复用）。
+
+### R2 · K8S Host 实体（application.yml）+ 懒 resolve（首次路由）
+
+- **决策**：`arthas-gateway.k8s-hosts` 配置远端集群入口；BackendConfig 加 `k8sHost+pod`（与 url 互斥）；首次路由懒 resolve（ensure + 缓存）。
+- **理由**：用户只配 K8S IP + pod，运行时刷新 mcpUrl（不需预知 NodePort）；懒 resolve 避免 ensure 空跑。
+
+### R3 · BackendResolver 接口倒置（gateway-core 定义，orchestration 实现）
+
+- **决策**：BackendResolver 接口在 backend 包（零 fabric8），K8sBackendResolver 实现在 orchestration。
+- **理由**：保持 gateway-core 零 K8S 依赖（ArchUnit 守护）；接口倒置让 BackendEntry（gateway-core）依赖抽象。
+
+### R4 · ArthasLauncher SPI（@Primary 覆盖 Default）
+
+- **决策**：抽 ArthasLauncher 策略接口；DefaultArthasLauncher（003 现状）+ 用户 @Primary 实现定制 javaPath/命令。
+- **理由**：用户需求（容器独立 JDK，留适配口子，少代码定制）；@ConditionalOnMissingBean + @Primary 标准 SPI。
+
+### R5 · ObjectProvider + @Lazy 打破装配环
+
+- **决策**：BackendEntryFactory 用 ObjectProvider<BackendResolver>（create 传 Supplier，运行时解析）；backendResolver @Bean @Lazy。
+- **理由**：BackendResolver→ArthasProvisioner→DynamicBackendStore→BackendConfigWatcher→BackendEntryFactory 形成环；ObjectProvider 推迟解析打破启动期环。
+
+---
+
 > **下一步**：Part 10 关键类源码摘录（逐行级，事无巨细）。

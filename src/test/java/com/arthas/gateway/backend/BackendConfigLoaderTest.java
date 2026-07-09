@@ -349,6 +349,103 @@ class BackendConfigLoaderTest {
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
+    // ===== 005 US2 K8S 模式（k8sHost + pod，与 url 互斥，INV-K8SHOST-1） =====
+
+    @Test
+    void parsesK8sModeBackendWithHostAndPod() {
+        BackendConfigLoader.LoadedBackends loaded = loader().load(yaml("""
+                version: 1
+                backends:
+                  - name: remote-k8s
+                    k8sHost: debian
+                    pod: demo-business
+                    auth: { mode: NONE }
+                """));
+
+        BackendConfig cfg = find(loaded, "remote-k8s");
+        assertThat(cfg.k8sHost()).as("K8S 模式解析 k8sHost").isEqualTo("debian");
+        assertThat(cfg.pod()).as("K8S 模式解析 pod").isEqualTo("demo-business");
+        assertThat(cfg.url()).as("K8S 模式无 url").isNull();
+        assertThat(cfg.isK8sMode()).isTrue();
+    }
+
+    @Test
+    void rejectsUrlAndK8sHostBothPresent() {
+        assertThatThrownBy(() -> loader().load(yaml("""
+                version: 1
+                backends:
+                  - name: both
+                    url: http://127.0.0.1:8563/mcp
+                    k8sHost: debian
+                    pod: demo-business
+                    auth: { mode: NONE }
+                """)))
+                .isInstanceOf(BackendConfigException.class)
+                .hasMessageContaining("互斥");
+    }
+
+    @Test
+    void rejectsK8sHostWithoutPod() {
+        assertThatThrownBy(() -> loader().load(yaml("""
+                version: 1
+                backends:
+                  - name: nopod
+                    k8sHost: debian
+                    auth: { mode: NONE }
+                """)))
+                .isInstanceOf(BackendConfigException.class)
+                .hasMessageContaining("pod");
+    }
+
+    @Test
+    void rejectsNeitherUrlNorK8sHost() {
+        assertThatThrownBy(() -> loader().load(yaml("""
+                version: 1
+                backends:
+                  - name: neither
+                    auth: { mode: NONE }
+                """)))
+                .isInstanceOf(BackendConfigException.class)
+                .hasMessageContaining("二选一");
+    }
+
+    @Test
+    void k8sModeAndStaticModeCoexist() {
+        BackendConfigLoader.LoadedBackends loaded = loader().load(yaml("""
+                version: 1
+                backends:
+                  - name: static
+                    url: http://127.0.0.1:8563/mcp
+                    auth: { mode: NONE }
+                  - name: k8s
+                    k8sHost: debian
+                    pod: demo-business
+                    auth: { mode: NONE }
+                """));
+
+        BackendConfig stat = find(loaded, "static");
+        BackendConfig k8s = find(loaded, "k8s");
+        assertThat(stat.url()).as("静态模式有 url").isNotNull();
+        assertThat(stat.k8sHost()).as("静态模式无 k8sHost").isNull();
+        assertThat(stat.isK8sMode()).isFalse();
+        assertThat(k8s.k8sHost()).as("K8S 模式有 k8sHost").isEqualTo("debian");
+        assertThat(k8s.url()).as("K8S 模式无 url").isNull();
+        assertThat(k8s.isK8sMode()).isTrue();
+    }
+
+    @Test
+    void withResolvedUrlProducesStaticEquivalentForK8sMode() {
+        BackendConfig k8s = new BackendConfig("k", null, Protocol.STREAMABLE,
+                new BackendConfig.Auth(AuthMode.NONE, null, null, null),
+                5000, 30000, 5, "debian", "demo-business", Source.STATIC);
+        BackendConfig resolved = k8s.withResolvedUrl("http://192.168.31.92:30050");
+
+        assertThat(resolved.url()).as("resolve 后 url 为 mcpUrl").isEqualTo("http://192.168.31.92:30050");
+        assertThat(resolved.k8sHost()).as("resolve 后 k8sHost 清空（不再需懒 resolve）").isNull();
+        assertThat(resolved.isK8sMode()).isFalse();
+        assertThat(resolved.name()).isEqualTo("k"); // 其余字段原样保留
+    }
+
     // ===== 辅助 =====
 
     private static BackendConfig find(BackendConfigLoader.LoadedBackends loaded, String name) {

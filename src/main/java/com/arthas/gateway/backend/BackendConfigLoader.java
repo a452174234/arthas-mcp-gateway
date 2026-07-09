@@ -132,8 +132,12 @@ public final class BackendConfigLoader {
         Source source = b.containsKey("source")
                 ? parseEnum(Source.class, asString(b.get("source")), name + ".source")
                 : Source.STATIC;
+        // 005 US2：K8S 模式字段（k8sHost + pod，与 url 互斥）。互斥/必填校验由 BackendConfig 紧凑构造器兜底。
+        String k8sHost = asString(b.get("k8sHost"));
+        String pod = asString(b.get("pod"));
 
-        return new BackendConfig(name, url, protocol, auth, connectTimeoutMs, callTimeoutMs, maxConcurrentTasks, source);
+        return new BackendConfig(name, url, protocol, auth, connectTimeoutMs, callTimeoutMs,
+                maxConcurrentTasks, k8sHost, pod, source);
     }
 
     private BackendConfig.Auth readAuth(Object raw, String backendName) {

@@ -5,7 +5,9 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Semaphore;
+import java.util.function.Supplier;
 
 /**
  * 单后端运行对象（data-model.md §3）+ <b>统一拦截层</b>（002 整改 · data-model.md §2）。
@@ -45,18 +47,37 @@ import java.util.concurrent.Semaphore;
 public final class BackendEntry {
 
     private final BackendConfig config;
-    private final BackendClient client;
+    private final Supplier<Optional<BackendResolver>> resolverSupplier;
     private final CircuitBreaker breaker;
     private final Semaphore taskSlots;
     private final Object initLock = new Object();
     private volatile BackendState state = BackendState.ACTIVE;
     private volatile boolean initialized = false;
+    /**
+     * MCP 客户端：静态模式构造时预建（config.url）；K8S 模式（005 US2）传 null，首次 initializeOnce 时
+     * 懒 resolve 出 mcpUrl 再建（{@link #resolveClientIfNeeded}）。
+     */
+    private volatile BackendClient client;
 
-    public BackendEntry(BackendConfig config, BackendClient client, CircuitBreaker breaker) {
+    /** 005 US2 懒 resolve 主构造：注入 {@link Supplier}（运行时 initializeOnce 才解析，避免启动期装配环）。 */
+    public BackendEntry(BackendConfig config, BackendClient client, CircuitBreaker breaker,
+                        Supplier<Optional<BackendResolver>> resolverSupplier) {
         this.config = Objects.requireNonNull(config, "config 不可为空");
-        this.client = Objects.requireNonNull(client, "client 不可为空");
+        this.client = client; // 静态模式预建；K8S 模式传 null（懒建）
         this.breaker = Objects.requireNonNull(breaker, "breaker 不可为空");
+        this.resolverSupplier = Objects.requireNonNull(resolverSupplier, "resolverSupplier 不可为空");
         this.taskSlots = new Semaphore(config.maxConcurrentTasks());
+    }
+
+    /** Optional 兼容构造（固定 resolver，测试用）。 */
+    public BackendEntry(BackendConfig config, BackendClient client, CircuitBreaker breaker,
+                        Optional<BackendResolver> resolver) {
+        this(config, client, breaker, () -> Objects.requireNonNull(resolver));
+    }
+
+    /** 向后兼容构造（静态模式，resolver=empty，003/004 既有调用点零改动）。 */
+    public BackendEntry(BackendConfig config, BackendClient client, CircuitBreaker breaker) {
+        this(config, client, breaker, Optional.empty());
     }
 
     public BackendConfig config() {
@@ -178,10 +199,32 @@ public final class BackendEntry {
         }
         synchronized (initLock) {
             if (!initialized) {
-                client.initialize();
+                BackendClient c = resolveClientIfNeeded();
+                c.initialize();
+                this.client = c;
                 initialized = true;
             }
         }
+    }
+
+    /**
+     * 005 US2 懒 resolve：K8S 模式（client 为 null）时调 {@link BackendResolver} resolve 出 mcpUrl，
+     * 用 {@code config.withResolvedUrl(mcpUrl)} 建 {@link HttpBackendClient}（覆盖 config.url）。
+     * 静态模式（client 预建）直接复用。K8S 模式但无 resolver → no_k8s_resolver（INV-K8SHOST-4）。
+     */
+    private BackendClient resolveClientIfNeeded() {
+        if (this.client != null) {
+            return this.client; // 静态模式预建
+        }
+        Optional<BackendResolver> r = resolverSupplier.get();
+        if (r.isEmpty()) {
+            throw new BackendUnreachableException(new IllegalStateException(
+                    "no_k8s_resolver: K8S 模式 backend " + config.name() + " 无 BackendResolver（未配 arthas-gateway.k8s-hosts）"));
+        }
+        String mcpUrl = r.get().resolveMcpUrl(config)
+                .orElseThrow(() -> new BackendUnreachableException(new IllegalStateException(
+                        "no_k8s_resolver: K8S 模式 backend " + config.name() + " resolve 返 empty")));
+        return new HttpBackendClient(config.withResolvedUrl(mcpUrl));
     }
 
     /** 健康单一事实源（US5/FR-012）：{@code ACTIVE} 且熔断非 OPEN。list-targets/HealthIndicator/守卫共用。 */

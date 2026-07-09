@@ -1,7 +1,9 @@
 package com.arthas.gateway.config;
 
+import com.arthas.gateway.backend.BackendResolver;
 import com.arthas.gateway.backend.DynamicBackendStore;
 import com.arthas.gateway.orchestration.ArthasProvisioner;
+import com.arthas.gateway.orchestration.K8sBackendResolver;
 import com.arthas.gateway.orchestration.K8sClientFactory;
 import com.arthas.gateway.orchestration.K8sEnabledCondition;
 import com.arthas.gateway.orchestration.K8sPodExplorer;
@@ -9,9 +11,18 @@ import com.arthas.gateway.orchestration.K8sToolHandlers;
 import com.arthas.gateway.orchestration.NodePortExposer;
 import com.arthas.gateway.orchestration.OrchestrationRecordStore;
 import io.fabric8.kubernetes.client.KubernetesClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
+
+import java.time.Clock;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * K8S 编排 bean 装配（003 特性，research.md R6）。
@@ -30,6 +41,8 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @Conditional(K8sEnabledCondition.class)
 public class K8sOrchestrationConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(K8sOrchestrationConfig.class);
 
     /** kubeconfig → fabric8 client 工厂（{@link AutoCloseable}：容器关闭释放连接池）。 */
     @Bean(destroyMethod = "close")
@@ -70,6 +83,38 @@ public class K8sOrchestrationConfig {
         return new ArthasProvisioner(client, exposer, dynamicStore, recordStore,
                 k.getTargetIp(), k.getArthasBootJar(), k.getMcpPort(), k.getArthasVersion(),
                 k.getArthasPassword());
+    }
+
+    /**
+     * 005 US2 K8S 模式后端懒 resolve（{@link BackendResolver}）：按 {@code arthas-gateway.k8s-hosts} 列表为每个
+     * host 建独立 {@link KubernetesClient} + {@link NodePortExposer} + {@link ArthasProvisioner}，组成 host→provisioner 映射。
+     * K8S 模式 backend（{@code k8sHost}+{@code pod}）首次路由时经此 resolve（ensure + 缓存 mcpUrl）。
+     *
+     * <p>k8s-hosts 为空（003 单集群场景，仅 ensure 工具）→ resolver 装配但映射空（无 K8S 模式 backend 即不触发）。
+     * clients 由本 bean 拥有（{@code destroyMethod="close"} 释放）。
+     */
+    @Bean(destroyMethod = "close")
+    @Lazy // 懒创建：避免启动期 registryHolder↔dynamicBackendStore↔backendConfigWatcher 环（首次 create() 经 ObjectProvider 创建，此时启动已完成）
+    BackendResolver backendResolver(GatewayProperties props, DynamicBackendStore dynamicStore,
+                                    OrchestrationRecordStore recordStore) {
+        GatewayProperties.K8s k = props.getK8s();
+        Map<String, ArthasProvisioner> provisioners = new LinkedHashMap<>();
+        Map<String, GatewayProperties.K8sHost> hosts = new LinkedHashMap<>();
+        List<KubernetesClient> clients = new ArrayList<>();
+        for (GatewayProperties.K8sHost h : props.getK8sHosts()) {
+            KubernetesClient c = K8sClientFactory.buildFromKubeconfig(h.getKubeconfig());
+            clients.add(c);
+            NodePortExposer exposer = new NodePortExposer(c);
+            ArthasProvisioner p = new ArthasProvisioner(c, exposer, dynamicStore, recordStore,
+                    k.getTargetIp(), k.getArthasBootJar(), k.getMcpPort(), k.getArthasVersion(),
+                    k.getArthasPassword());
+            provisioners.put(h.getName(), p);
+            hosts.put(h.getName(), h);
+        }
+        K8sBackendResolver resolver = new K8sBackendResolver(provisioners, hosts, Clock.systemUTC());
+        resolver.setOwnedClients(clients);
+        log.info("K8sBackendResolver 装配：{} host(s) → {}", provisioners.size(), provisioners.keySet());
+        return resolver;
     }
 
     /** 3 个编排工具的本地处理器（handler 自带闭包，不经 ToolsCallRouter）。 */

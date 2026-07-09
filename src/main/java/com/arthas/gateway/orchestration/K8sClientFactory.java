@@ -34,11 +34,24 @@ public final class K8sClientFactory implements AutoCloseable {
 
     public K8sClientFactory(GatewayProperties props) {
         Objects.requireNonNull(props, "props 不可为空");
-        this.client = build(props.getK8s());
+        String kc = props.getK8s().getKubeconfig();
+        this.client = buildFromKubeconfig(kc);
+        if (props.getK8s().getContext() != null && !props.getK8s().getContext().isBlank()) {
+            log.info("k8s.context 配置为 {}：当前实现尊重 kubeconfig current-context（单 context 测试床）", props.getK8s().getContext());
+        }
+        log.info("KubernetesClient 已构建（kubeconfig={}, master={})",
+                Path.of(kc).toAbsolutePath(), this.client.getMasterUrl());
     }
 
-    private static KubernetesClient build(GatewayProperties.K8s k8s) {
-        Path kubeconfig = Path.of(k8s.getKubeconfig()).toAbsolutePath();
+    /**
+     * 由 kubeconfig 路径构建 fabric8 {@link KubernetesClient}（005 多 host：每个 {@code arthas-gateway.k8s-hosts}
+     * 项按各自 kubeconfig 建独立 client）。
+     *
+     * @param kubeconfigPath kubeconfig 文件路径
+     * @return 已构建的 client（调用方负责关闭）
+     */
+    public static KubernetesClient buildFromKubeconfig(String kubeconfigPath) {
+        Path kubeconfig = Path.of(kubeconfigPath).toAbsolutePath();
         String content;
         try {
             content = Files.readString(kubeconfig);
@@ -49,13 +62,7 @@ public final class K8sClientFactory implements AutoCloseable {
             throw new IllegalStateException("kubeconfig 内容为空：" + kubeconfig);
         }
         Config config = Config.fromKubeconfig(content); // 取 current-context（测试床单 context）
-        if (k8s.getContext() != null && !k8s.getContext().isBlank()) {
-            log.info("k8s.context 配置为 {}：当前实现尊重 kubeconfig current-context（单 context 测试床）", k8s.getContext());
-        }
-        KubernetesClient c = new KubernetesClientBuilder().withConfig(config).build();
-        log.info("KubernetesClient 已构建（kubeconfig={}, master={})",
-                kubeconfig, c.getMasterUrl());
-        return c;
+        return new KubernetesClientBuilder().withConfig(config).build();
     }
 
     /** 单例 fabric8 客户端（list/exec/create 共用）。 */

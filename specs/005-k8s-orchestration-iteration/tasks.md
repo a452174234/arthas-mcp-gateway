@@ -80,19 +80,19 @@
 
 ### 测试先于实现
 
-- [ ] T012 [P] [US2] Write failing `BackendConfigLoaderTest` 扩展 in `src/test/java/com/arthas/gateway/backend/BackendConfigLoaderTest.java`（解析 k8sHost/pod 字段；url 与 k8sHost 互斥：皆有/皆空 → 校验失败保留旧表（INV-K8SHOST-1）；k8sHost 非空时 pod 必填）
-- [ ] T013 [P] [US2] Write failing `K8sBackendResolverTest` in `src/test/java/com/arthas/gateway/orchestration/K8sBackendResolverTest.java`（mock provisioner：① K8S 模式 → 调 ensure 返 mcpUrl；② 同 logicalName 二次 → 缓存命中不重复 ensure（INV-K8SHOST-2）；③ 静态模式 → Optional.empty() 旁路（INV-K8SHOST-5）；④ host 不存在 → unknown_k8s_host（INV-K8SHOST-3））
-- [ ] T014 [P] [US2] Write failing `BackendEntryLazyResolveTest` in `src/test/java/com/arthas/gateway/backend/BackendEntryLazyResolveTest.java`（mock resolver：K8S 模式 → initializeOnce 用 resolveMcpUrl 建 HttpBackendClient（覆盖 config.url）；静态模式/无 resolver → 用 config.url；no_k8s_resolver 场景（INV-K8SHOST-4））
-- [ ] T015 [P] [US2] Write failing `K8sBackendResolverContractIT` in `src/test/java/com/arthas/gateway/orchestration/K8sBackendResolverContractIT.java`（failsafe *IT，真实 k3s + application.yml 配 K8S Host + backends.yaml 配 K8S 模式 backend：① 首次诊断 → ensure + 纳管 + 诊断成功（mcpUrl 来自 ensure）；② 二次 → 缓存；③ 静态 backend 旁路；④ 无 K8S 配置 → no_k8s_resolver）
+- [X] T012 [P] [US2] Write failing `BackendConfigLoaderTest` 扩展 in `src/test/java/com/arthas/gateway/backend/BackendConfigLoaderTest.java`（解析 k8sHost/pod 字段；url 与 k8sHost 互斥：皆有/皆空 → 校验失败保留旧表（INV-K8SHOST-1）；k8sHost 非空时 pod 必填）
+- [X] T013 [P] [US2] Write failing `K8sBackendResolverTest` in `src/test/java/com/arthas/gateway/orchestration/K8sBackendResolverTest.java`（mock provisioner：① K8S 模式 → 调 ensure 返 mcpUrl；② 同 logicalName 二次 → 缓存命中不重复 ensure（INV-K8SHOST-2）；③ 静态模式 → Optional.empty() 旁路（INV-K8SHOST-5）；④ host 不存在 → unknown_k8s_host（INV-K8SHOST-3））
+- [X] T014 [P] [US2] Write failing `BackendEntryLazyResolveTest` in `src/test/java/com/arthas/gateway/backend/BackendEntryLazyResolveTest.java`（mock resolver：K8S 模式 → initializeOnce 用 resolveMcpUrl 建 HttpBackendClient（覆盖 config.url）；静态模式/无 resolver → 用 config.url；no_k8s_resolver 场景（INV-K8SHOST-4））
+- [X] T015 [P] [US2] Write failing `K8sBackendResolverContractIT` in `src/test/java/com/arthas/gateway/orchestration/K8sBackendResolverContractIT.java`（failsafe *IT，真实 k3s + application.yml 配 K8S Host + backends.yaml 配 K8S 模式 backend：① 首次诊断 → ensure + 纳管 + 诊断成功（mcpUrl 来自 ensure）；② 二次 → 缓存；③ 静态 backend 旁路；④ 无 K8S 配置 → no_k8s_resolver）
 
 ### 实现
 
-- [ ] T016 [US2] Implement `BackendConfig` 加 `k8sHost` + `pod` 字段 + 互斥校验 in `src/main/java/com/arthas/gateway/backend/BackendConfig.java`（紧凑构造器：url 与 k8sHost 互斥；k8sHost 非空 pod 必填；equals/hashCode 纳入 k8sHost/pod；green for T012）
-- [ ] T017 [US2] Implement `BackendConfigLoader` 解析 k8sHost/pod in `src/main/java/com/arthas/gateway/backend/BackendConfigLoader.java`（toBackendConfig 加 k8sHost/pod；green for T012）
-- [ ] T018 [US2] Implement `K8sBackendResolver` in `src/main/java/com/arthas/gateway/orchestration/K8sBackendResolver.java`（implements BackendResolver；Map<hostName, ArthasProvisioner> + Map<hostName, K8sHost> + ConcurrentHashMap 缓存；resolveMcpUrl 路由 host → ensure → 缓存；green for T013）
-- [ ] T019 [US2] Implement `BackendEntry.initializeOnce` 懒 resolve hook in `src/main/java/com/arthas/gateway/backend/BackendEntry.java`（注入 Optional<BackendResolver>；首次握手时 resolveMcpUrl 拿 mcpUrl 覆盖 config.url 建 HttpBackendClient；green for T014）
-- [ ] T020 [US2] Implement `BackendEntryFactory` 注入 `Optional<BackendResolver>` in `src/main/java/com/arthas/gateway/backend/BackendEntryFactory.java`（传给 BackendEntry 构造）
-- [ ] T021 [US2] Implement `K8sOrchestrationConfig` 装配 K8sBackendResolver in `src/main/java/com/arthas/gateway/config/K8sOrchestrationConfig.java`（按 k8s-hosts 配置建 Map<host, KubernetesClient + ArthasProvisioner + NodePortExposer>；@Bean BackendResolver = K8sBackendResolver（@ConditionalOnMissingBean + K8S 启用时）；green for T015）
+- [X] T016 [US2] Implement `BackendConfig` 加 `k8sHost` + `pod` 字段 + 互斥校验 in `src/main/java/com/arthas/gateway/backend/BackendConfig.java`（紧凑构造器：url 与 k8sHost 互斥；k8sHost 非空 pod 必填；equals/hashCode 纳入 k8sHost/pod；green for T012）
+- [X] T017 [US2] Implement `BackendConfigLoader` 解析 k8sHost/pod in `src/main/java/com/arthas/gateway/backend/BackendConfigLoader.java`（toBackendConfig 加 k8sHost/pod；green for T012）
+- [X] T018 [US2] Implement `K8sBackendResolver` in `src/main/java/com/arthas/gateway/orchestration/K8sBackendResolver.java`（implements BackendResolver；Map<hostName, ArthasProvisioner> + Map<hostName, K8sHost> + ConcurrentHashMap 缓存；resolveMcpUrl 路由 host → ensure → 缓存；green for T013）
+- [X] T019 [US2] Implement `BackendEntry.initializeOnce` 懒 resolve hook in `src/main/java/com/arthas/gateway/backend/BackendEntry.java`（注入 Optional<BackendResolver>；首次握手时 resolveMcpUrl 拿 mcpUrl 覆盖 config.url 建 HttpBackendClient；green for T014）
+- [X] T020 [US2] Implement `BackendEntryFactory` 注入 `Optional<BackendResolver>` in `src/main/java/com/arthas/gateway/backend/BackendEntryFactory.java`（传给 BackendEntry 构造）
+- [X] T021 [US2] Implement `K8sOrchestrationConfig` 装配 K8sBackendResolver in `src/main/java/com/arthas/gateway/config/K8sOrchestrationConfig.java`（按 k8s-hosts 配置建 Map<host, KubernetesClient + ArthasProvisioner + NodePortExposer>；@Bean BackendResolver = K8sBackendResolver（@ConditionalOnMissingBean + K8S 启用时）；green for T015）
 
 **Checkpoint (US2)**: K8S 模式 backend 首次路由自动 ensure + 缓存；静态模式旁路；零 gateway-core K8S 依赖。
 

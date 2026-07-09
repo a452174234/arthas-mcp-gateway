@@ -2,7 +2,9 @@ package com.arthas.gateway.config;
 
 import com.arthas.gateway.backend.BackendResolver;
 import com.arthas.gateway.backend.DynamicBackendStore;
+import com.arthas.gateway.orchestration.ArthasLauncher;
 import com.arthas.gateway.orchestration.ArthasProvisioner;
+import com.arthas.gateway.orchestration.DefaultArthasLauncher;
 import com.arthas.gateway.orchestration.K8sBackendResolver;
 import com.arthas.gateway.orchestration.K8sClientFactory;
 import com.arthas.gateway.orchestration.K8sEnabledCondition;
@@ -13,12 +15,14 @@ import com.arthas.gateway.orchestration.OrchestrationRecordStore;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -74,15 +78,22 @@ public class K8sOrchestrationConfig {
         return new OrchestrationRecordStore();
     }
 
-    /** arthas 供给器（ensure 核心）。供给参数取自 {@link GatewayProperties.K8s}。 */
+    /** 005 US3：默认 arthas 启动器（003 现状：PATH 的 jps + java -jar）。用户 {@code @Primary ArthasLauncher} 覆盖（INV-LAUNCHER-3）。 */
+    @Bean
+    @ConditionalOnMissingBean(ArthasLauncher.class)
+    DefaultArthasLauncher defaultArthasLauncher() {
+        return new DefaultArthasLauncher();
+    }
+
+    /** arthas 供给器（ensure 核心，005 US3 委托 {@link ArthasLauncher}）。 */
     @Bean
     ArthasProvisioner arthasProvisioner(KubernetesClient client, NodePortExposer exposer,
                                         DynamicBackendStore dynamicStore, OrchestrationRecordStore recordStore,
-                                        GatewayProperties props) {
+                                        GatewayProperties props, ArthasLauncher launcher) {
         GatewayProperties.K8s k = props.getK8s();
         return new ArthasProvisioner(client, exposer, dynamicStore, recordStore,
                 k.getTargetIp(), k.getArthasBootJar(), k.getMcpPort(), k.getArthasVersion(),
-                k.getArthasPassword());
+                k.getArthasPassword(), Duration.ofSeconds(90), launcher);
     }
 
     /**
@@ -96,7 +107,7 @@ public class K8sOrchestrationConfig {
     @Bean(destroyMethod = "close")
     @Lazy // 懒创建：避免启动期 registryHolder↔dynamicBackendStore↔backendConfigWatcher 环（首次 create() 经 ObjectProvider 创建，此时启动已完成）
     BackendResolver backendResolver(GatewayProperties props, DynamicBackendStore dynamicStore,
-                                    OrchestrationRecordStore recordStore) {
+                                    OrchestrationRecordStore recordStore, ArthasLauncher launcher) {
         GatewayProperties.K8s k = props.getK8s();
         Map<String, ArthasProvisioner> provisioners = new LinkedHashMap<>();
         Map<String, GatewayProperties.K8sHost> hosts = new LinkedHashMap<>();
@@ -107,7 +118,7 @@ public class K8sOrchestrationConfig {
             NodePortExposer exposer = new NodePortExposer(c);
             ArthasProvisioner p = new ArthasProvisioner(c, exposer, dynamicStore, recordStore,
                     k.getTargetIp(), k.getArthasBootJar(), k.getMcpPort(), k.getArthasVersion(),
-                    k.getArthasPassword());
+                    k.getArthasPassword(), Duration.ofSeconds(90), launcher);
             provisioners.put(h.getName(), p);
             hosts.put(h.getName(), h);
         }

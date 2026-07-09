@@ -108,14 +108,14 @@
 
 ### 测试先于实现
 
-- [ ] T022 [P] [US3] Implement `TestArthasLauncher` test fixture（真实实现，非 mock）in `src/test/java/com/arthas/gateway/orchestration/TestArthasLauncher.java`（locatePid 固定返 pid 12345；startArthas 记录 LaunchContext + pid 到静态/实例探针字段；`@Primary @Component`（测试装配覆盖 Default）；用于 ArthasLauncherSpiTest 验证委托）
-- [ ] T023 [P] [US3] Write failing `ArthasLauncherSpiTest` in `src/test/java/com/arthas/gateway/orchestration/ArthasLauncherSpiTest.java`（① ArthasProvisioner.doProvision 真调 launcher.locatePid + startArthas（非硬编码，INV-LAUNCHER-1）；② TestArthasLauncher（@Primary）覆盖 Default（INV-LAUNCHER-3）；③ locatePid 返 12345 + startArthas 收到正确 LaunchContext（契约）；④ TestArthasLauncher 抛 LaunchException → 映射 failed@start_arthas（INV-LAUNCHER-4））
-- [ ] T024 [P] [US3] Write failing `CustomLauncherContractIT` in `src/test/java/com/arthas/gateway/orchestration/CustomLauncherContractIT.java`（failsafe *IT，真实 k3s + 测试用 CustomArthasLauncher（指定 pod 内真实 JDK 路径，或 PATH java 验证覆盖链路）：ensure 用 Custom 启动 arthas；Default 兼容（去 Custom 后 = 003 现状））
+- [X] T022 [P] [US3] Implement `TestArthasLauncher` test fixture（真实实现，非 mock）in `src/test/java/com/arthas/gateway/orchestration/TestArthasLauncher.java`（locatePid 固定返 pid 12345；startArthas 记录 LaunchContext + pid 到静态/实例探针字段；`@Primary @Component`（测试装配覆盖 Default）；用于 ArthasLauncherSpiTest 验证委托）
+- [X] T023 [P] [US3] Write failing `ArthasLauncherSpiTest` in `src/test/java/com/arthas/gateway/orchestration/ArthasLauncherSpiTest.java`（① ArthasProvisioner.doProvision 真调 launcher.locatePid + startArthas（非硬编码，INV-LAUNCHER-1）；② TestArthasLauncher（@Primary）覆盖 Default（INV-LAUNCHER-3）；③ locatePid 返 12345 + startArthas 收到正确 LaunchContext（契约）；④ TestArthasLauncher 抛 LaunchException → 映射 failed@start_arthas（INV-LAUNCHER-4））
+- [X] T024 [P] [US3] Write failing `CustomLauncherContractIT` in `src/test/java/com/arthas/gateway/orchestration/CustomLauncherContractIT.java`（failsafe *IT，真实 k3s + 测试用 CustomArthasLauncher（指定 pod 内真实 JDK 路径，或 PATH java 验证覆盖链路）：ensure 用 Custom 启动 arthas；Default 兼容（去 Custom 后 = 003 现状））
 
 ### 实现
 
-- [ ] T025 [US3] Refactor `ArthasProvisioner` 委托 ArthasLauncher in `src/main/java/com/arthas/gateway/orchestration/ArthasProvisioner.java`（注入 ArthasLauncher；删私有 locateJvm/startArthas；doProvision 改调 `launcher.locatePid(ctx)` + `launcher.startArthas(ctx, pid)`；LaunchException → ProvisionException 映射 failed@locate_jvm/start_arthas；green for T023/T024）
-- [ ] T026 [US3] Implement `K8sOrchestrationConfig` 装配 `DefaultArthasLauncher`（@ConditionalOnMissingBean(ArthasLauncher.class)）+ ArthasProvisioner 注入 ArthasLauncher in `src/main/java/com/arthas/gateway/config/K8sOrchestrationConfig.java`（用户 @Primary @Component 自动覆盖；INV-LAUNCHER-3）
+- [X] T025 [US3] Refactor `ArthasProvisioner` 委托 ArthasLauncher in `src/main/java/com/arthas/gateway/orchestration/ArthasProvisioner.java`（注入 ArthasLauncher；删私有 locateJvm/startArthas；doProvision 改调 `launcher.locatePid(ctx)` + `launcher.startArthas(ctx, pid)`；LaunchException → ProvisionException 映射 failed@locate_jvm/start_arthas；green for T023/T024）
+- [X] T026 [US3] Implement `K8sOrchestrationConfig` 装配 `DefaultArthasLauncher`（@ConditionalOnMissingBean(ArthasLauncher.class)）+ ArthasProvisioner 注入 ArthasLauncher in `src/main/java/com/arthas/gateway/config/K8sOrchestrationConfig.java`（用户 @Primary @Component 自动覆盖；INV-LAUNCHER-3）
 
 **Checkpoint (US3)**: ArthasProvisioner 委托 launcher；@Primary 自定义覆盖 Default；test fixture 验证 SPI 机制。
 

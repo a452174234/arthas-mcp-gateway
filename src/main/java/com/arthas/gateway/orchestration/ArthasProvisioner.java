@@ -77,6 +77,8 @@ public class ArthasProvisioner {
     private final KubernetesClient client;
     private final K8sExec exec;
     private final NodePortExposer exposer;
+    /** 005 US3：arthas 启动委托（locatePid + startArthas）；用户 @Primary 实现覆盖 DefaultArthasLauncher（INV-LAUNCHER-3）。 */
+    private final ArthasLauncher launcher;
     private final DynamicBackendStore dynamicStore;
     private final OrchestrationRecordStore recordStore;
     private final String targetIp;
@@ -90,25 +92,35 @@ public class ArthasProvisioner {
     /** 健康检查轮询总超时（生产用默认 90s；K-ENS-7 loopback 故障用例注入短超时快速失败）。 */
     private final Duration healthCheckTimeout;
 
-    /** 生产装配（参数来自 {@link com.arthas.gateway.config.GatewayProperties.K8s}）。 */
+    /** 生产装配（参数来自 {@link com.arthas.gateway.config.GatewayProperties.K8s}），launcher 用 {@link DefaultArthasLauncher}。 */
     public ArthasProvisioner(KubernetesClient client, NodePortExposer exposer,
                              DynamicBackendStore dynamicStore, OrchestrationRecordStore recordStore,
                              String targetIp, String arthasBootJar, int mcpPort, String arthasVersion,
                              String arthasPassword) {
         this(client, exposer, dynamicStore, recordStore, targetIp, arthasBootJar, mcpPort,
-                arthasVersion, arthasPassword, DEFAULT_HEALTH_CHECK_TIMEOUT);
+                arthasVersion, arthasPassword, DEFAULT_HEALTH_CHECK_TIMEOUT, new DefaultArthasLauncher());
     }
 
     /**
-     * 测试构造器：可注入健康检查轮询总超时。
+     * 测试构造器：可注入健康检查轮询总超时（launcher 默认 {@link DefaultArthasLauncher}）。
      *
-     * <p>K-ENS-7（arthas 绑 loopback → NodePort 不可达 → 健康检查超时）需<b>短</b>超时快速失败，
-     * 避免 90s 默认值拖慢故障用例。生产装配走 9 参构造器（默认 90s）。
+     * <p>K-ENS-7（arthas 绑 loopback → NodePort 不可达 → 健康检查超时）需<b>短</b>超时快速失败。
      */
     ArthasProvisioner(KubernetesClient client, NodePortExposer exposer,
                       DynamicBackendStore dynamicStore, OrchestrationRecordStore recordStore,
                       String targetIp, String arthasBootJar, int mcpPort, String arthasVersion,
                       String arthasPassword, Duration healthCheckTimeout) {
+        this(client, exposer, dynamicStore, recordStore, targetIp, arthasBootJar, mcpPort,
+                arthasVersion, arthasPassword, healthCheckTimeout, new DefaultArthasLauncher());
+    }
+
+    /**
+     * 005 US3：注入 {@link ArthasLauncher}（locatePid + startArthas 委托；用户 @Primary 实现覆盖 Default）。
+     */
+    public ArthasProvisioner(KubernetesClient client, NodePortExposer exposer,
+                             DynamicBackendStore dynamicStore, OrchestrationRecordStore recordStore,
+                             String targetIp, String arthasBootJar, int mcpPort, String arthasVersion,
+                             String arthasPassword, Duration healthCheckTimeout, ArthasLauncher launcher) {
         this.client = Objects.requireNonNull(client, "client 不可为空");
         this.exec = new K8sExec(client);
         this.exposer = Objects.requireNonNull(exposer, "exposer 不可为空");
@@ -120,12 +132,20 @@ public class ArthasProvisioner {
         this.arthasPassword = Objects.requireNonNull(arthasPassword, "arthasPassword 不可为空");
         this.auth = new BackendConfig.Auth(AuthMode.BEARER, arthasPassword, null, null);
         this.healthCheckTimeout = Objects.requireNonNull(healthCheckTimeout, "healthCheckTimeout 不可为空");
+        this.launcher = Objects.requireNonNull(launcher, "launcher 不可为空");
         Path jar = Path.of(Objects.requireNonNull(arthasBootJar, "arthasBootJar 不可为空"));
         if (!Files.isReadable(jar)) {
             throw new IllegalStateException("arthas-boot.jar 不可读：" + jar.toAbsolutePath()
                     + "（应作为静态工具文件置于工程 tools/，见 memory arthas-no-dependency）");
         }
         this.arthasBootJar = jar;
+    }
+
+    /** 005 US3：构造 LaunchContext（namespace/pod + exec + arthas 启动参数 + 远程 jar path），传 ArthasLauncher。 */
+    private ArthasLauncher.LaunchContext buildContext(String namespace, String pod) {
+        return new ArthasLauncher.LaunchContext(namespace, pod, exec, mcpPort, targetIp,
+                arthasVersion, arthasPassword, REMOTE_ARTHAS_JAR,
+                ATTACH_TIMEOUT, LOCATE_TIMEOUT);
     }
 
     /** 确定性派生逻辑名（target 名）= {@code {server}-{pod}}（K-ENS-8）。 */
@@ -233,30 +253,19 @@ public class ArthasProvisioner {
 
     // ===== 子步：定位 JVM =====
 
-    /** exec 定位运行中的 JVM PID；无 shell/403/不可达→分类，无 PID→no_jvm。 */
+    /** 005 US3：委托 {@link ArthasLauncher#locatePid}（定位 JVM PID；003 既有 jps 逻辑外移至 DefaultArthasLauncher）。 */
     private long locateJvm(String namespace, String pod) {
-        K8sExec.ExecResult r;
         try {
-            r = exec.exec(namespace, pod, LOCATE_TIMEOUT, "sh", "-c",
-                    "jps -q 2>/dev/null | grep -E '^[0-9]+$' | head -1");
-        } catch (K8sExecException e) {
-            throw new ProvisionException(classifyExecError(e, "locate_jvm"));
+            return launcher.locatePid(buildContext(namespace, pod));
+        } catch (ArthasLauncher.LaunchException e) {
+            throw new ProvisionException(e.error());
         }
-        if (r.exitCode() != 0) {
-            // exec 非零退出：负值=通道故障（无 shell 等），正值=命令失败 → 按 shell/可达性分类
-            throw new ProvisionException(classifyExecResult(r, "locate_jvm"));
-        }
-        String pidStr = r.stdout().trim();
-        if (!PID_LINE.matcher(pidStr).matches()) {
-            throw new ProvisionException(errorOf("no_jvm", "locate_jvm",
-                    "pod 内无可被 arthas attach 的运行中 JVM（" + namespace + "/" + pod + "）"));
-        }
-        return Long.parseLong(pidStr.trim());
     }
 
     // ===== 子步：上传 arthas-boot.jar =====
 
-    private void installArthas(String namespace, String pod) {
+    /** package-private 供 spy 测试覆盖（T023 跳过真实 upload，聚焦 launcher 委托）。 */
+    void installArthas(String namespace, String pod) {
         try {
             boolean ok = client.pods().inNamespace(namespace).withName(pod)
                     .file(REMOTE_ARTHAS_JAR).upload(arthasBootJar);
@@ -279,24 +288,12 @@ public class ArthasProvisioner {
 
     // ===== 子步：启动 arthas =====
 
+    /** 005 US3：委托 {@link ArthasLauncher#startArthas}（启动 arthas attach；003 既有 java -jar 逻辑外移至 DefaultArthasLauncher）。 */
     private void startArthas(String namespace, String pod, long pid) {
-        K8sExec.ExecResult r;
         try {
-            r = exec.exec(namespace, pod, ATTACH_TIMEOUT,
-                    "java", "-jar", REMOTE_ARTHAS_JAR, String.valueOf(pid),
-                    "--attach-only",
-                    "--http-port", String.valueOf(mcpPort),
-                    "--target-ip", targetIp,
-                    "--telnet-port", "0",
-                    "--use-version", arthasVersion,
-                    "--password", arthasPassword);
-        } catch (K8sExecException e) {
-            throw new ProvisionException(errorOf("attach_failed", "start_arthas",
-                    "arthas attach 执行失败：" + e.getMessage()));
-        }
-        if (r.exitCode() != 0) {
-            throw new ProvisionException(errorOf("attach_failed", "start_arthas",
-                    "arthas attach 非零退出（exit=" + r.exitCode() + "）：" + r.stderr()));
+            launcher.startArthas(buildContext(namespace, pod), pid);
+        } catch (ArthasLauncher.LaunchException e) {
+            throw new ProvisionException(e.error());
         }
     }
 

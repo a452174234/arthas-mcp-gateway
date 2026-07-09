@@ -42,7 +42,7 @@ public class DefaultArthasLauncher implements ArthasLauncher {
         K8sExec.ExecResult r;
         try {
             r = ctx.exec().exec(ctx.namespace(), ctx.pod(), ctx.attachTimeout(),
-                    "java", "-jar", ctx.arthasBootJar().toString(), String.valueOf(pid),
+                    "java", "-jar", ctx.arthasBootJar(), String.valueOf(pid),
                     "--attach-only",
                     "--http-port", String.valueOf(ctx.mcpPort()),
                     "--target-ip", ctx.targetIp(),

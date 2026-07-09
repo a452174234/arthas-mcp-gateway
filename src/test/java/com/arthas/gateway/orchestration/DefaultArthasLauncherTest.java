@@ -2,7 +2,6 @@ package com.arthas.gateway.orchestration;
 
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Path;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,7 +22,7 @@ class DefaultArthasLauncherTest {
     private ArthasLauncher.LaunchContext ctx(K8sExec exec) {
         return new ArthasLauncher.LaunchContext("default", "demo", exec,
                 8563, "0.0.0.0", "4.3.0", "pwd",
-                Path.of("/tmp/arthas-boot.jar"), Duration.ofSeconds(300), Duration.ofSeconds(10));
+                "/tmp/arthas-boot.jar", Duration.ofSeconds(300), Duration.ofSeconds(10));
     }
 
     @Test

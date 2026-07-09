@@ -2,7 +2,6 @@ package com.arthas.gateway.orchestration;
 
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Path;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,7 +18,7 @@ class ArthasLauncherTest {
         ArthasLauncher.LaunchContext ctx = new ArthasLauncher.LaunchContext(
                 "default", "demo-business", exec,
                 8563, "0.0.0.0", "4.3.0", "secret",
-                Path.of("/tmp/arthas-boot.jar"),
+                "/tmp/arthas-boot.jar",
                 Duration.ofSeconds(300), Duration.ofSeconds(10));
         assertThat(ctx.namespace()).isEqualTo("default");
         assertThat(ctx.pod()).isEqualTo("demo-business");
@@ -28,7 +27,7 @@ class ArthasLauncherTest {
         assertThat(ctx.targetIp()).isEqualTo("0.0.0.0");
         assertThat(ctx.arthasVersion()).isEqualTo("4.3.0");
         assertThat(ctx.arthasPassword()).isEqualTo("secret");
-        assertThat(ctx.arthasBootJar()).isEqualTo(Path.of("/tmp/arthas-boot.jar"));
+        assertThat(ctx.arthasBootJar()).isEqualTo("/tmp/arthas-boot.jar");
         assertThat(ctx.attachTimeout()).isEqualTo(Duration.ofSeconds(300));
         assertThat(ctx.locateTimeout()).isEqualTo(Duration.ofSeconds(10));
     }

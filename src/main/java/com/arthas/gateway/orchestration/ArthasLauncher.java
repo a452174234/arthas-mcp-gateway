@@ -1,6 +1,5 @@
 package com.arthas.gateway.orchestration;
 
-import java.nio.file.Path;
 import java.time.Duration;
 
 /**
@@ -34,7 +33,7 @@ public interface ArthasLauncher {
      * @param targetIp       arthas 绑定地址（0.0.0.0，NodePort 可达）
      * @param arthasVersion  arthas 版本（4.3.0）
      * @param arthasPassword arthas 鉴权密码
-     * @param arthasBootJar  pod 内 jar 路径（/tmp/arthas-boot.jar）
+     * @param arthasBootJar  pod 内 jar 路径（/tmp/arthas-boot.jar，forward slash，Linux pod 原样用）
      * @param attachTimeout  启动 arthas 超时
      * @param locateTimeout  定位 JVM 超时
      */
@@ -46,7 +45,7 @@ public interface ArthasLauncher {
             String targetIp,
             String arthasVersion,
             String arthasPassword,
-            Path arthasBootJar,
+            String arthasBootJar,
             Duration attachTimeout,
             Duration locateTimeout) {
     }

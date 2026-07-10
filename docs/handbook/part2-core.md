@@ -974,4 +974,262 @@ public Health health() {
 
 ---
 
+## 第 16 章 005 K8S 编排能力迭代增量（backend 包）
+
+> 005 是 003 K8S 编排的**能力增强迭代**（Service 复用 / K8S 模式后端配置 / JDK 适配 SPI），**不增减工具**（38 恒定）。本章聚焦落到 **gateway-core backend 包**的增量（`BackendConfig`/`BackendEntry`/`BackendEntryFactory`/`BackendResolver`）；orchestration 包的 NodePort 复用、`K8sBackendResolver`、`ArthasLauncher` SPI 详见 [part4-k8s.md](./part4-k8s.md)。
+>
+> **硬约束**：零 gateway-core K8S 依赖不变（ArchUnit INV-BOUNDARY-1/2 守护）；003 既有契约全部不破。下面 4 节均「只追加」005 增量，不重写既有 001-004 语义。
+
+### 16.1 BackendConfig 增量：K8S 模式字段（US2）
+
+**文件**：`src/main/java/com/arthas/gateway/backend/BackendConfig.java:27`
+
+003 既有 record 加两个可选字段 `k8sHost` + `pod`，支持 **K8S 模式**（与静态 `url` 互斥）。record 头（`:27-37`）：
+
+```java
+public record BackendConfig(
+        String name,
+        String url,
+        Protocol protocol,
+        Auth auth,
+        int connectTimeoutMs,
+        int callTimeoutMs,
+        int maxConcurrentTasks,
+        String k8sHost,    // 005 US2：K8S 模式——引用 arthas-gateway.k8s-hosts[].name（与 url 互斥）
+        String pod,        // 005 US2：K8S 模式业务 pod 名（k8sHost 非空时必填）
+        Source source) {
+```
+
+**互斥校验**（紧凑构造器调 `validateModeRouting`，`:45` / `:66-80`，INV-K8SHOST-1）：
+
+```java
+private static void validateModeRouting(String name, String url, String k8sHost, String pod) {
+    boolean hasUrl = url != null && !url.isBlank();
+    boolean hasK8s = k8sHost != null && !k8sHost.isBlank();
+    if (hasUrl && hasK8s) {
+        throw new BackendConfigException(name + ": url 与 k8sHost 互斥（不可同时配置）");
+    }
+    if (!hasUrl && !hasK8s) {
+        throw new BackendConfigException(name + ": url 与 k8sHost 须二选一（静态模式配 url / K8S 模式配 k8sHost+pod）");
+    }
+    if (hasUrl) {
+        requireHttpUrl(name, url);          // 静态模式：url 须为合法 http(s)
+    } else if (pod == null || pod.isBlank()) {
+        throw new BackendConfigException(name + ": K8S 模式（k8sHost 非空）须配 pod");
+    }
+}
+```
+
+**模式判定与懒 resolve 后构造**（`:82-94`）：
+
+```java
+/** K8S 模式判定（k8sHost 非空）。 */
+public boolean isK8sMode() {
+    return k8sHost != null && !k8sHost.isBlank();
+}
+
+/** 005 US2 懒 resolve 后构造静态等价 config：用解析出的 mcpUrl 替换（K8S 模式 → 静态 url），
+ *  供 HttpBackendClient 按 mcpUrl 建连。k8sHost/pod 清空（已 resolve，不再需要）。 */
+public BackendConfig withResolvedUrl(String mcpUrl) {
+    return new BackendConfig(name, mcpUrl, protocol, auth,
+            connectTimeoutMs, callTimeoutMs, maxConcurrentTasks, null, null, source);
+}
+```
+
+**equals/hashCode 纳入 k8sHost/pod**（`:122-145`）：复用判定比较 9 个核心字段（含 k8sHost/pod），仍排除 `source`——「寻址模式变化=不同后端」，K8S 模式与同 mcpUrl 的静态模式视为不同可复用后端。
+
+**向后兼容构造器**（`:101-114`）：保留 7 参/8 参构造器（k8sHost/pod 缺省 null = 静态模式），003/004 既有调用点零改动。
+
+**YAML 解析**（`BackendConfigLoader.java:135-140`）：读 `k8sHost`/`pod` 键（互斥/必填校验由 BackendConfig 紧凑构造器兜底）。配置示例：
+
+```yaml
+backends:
+  - name: order-service           # K8S 模式（005）
+    k8s-host: debian-prod          # 引用 arthas-gateway.k8s-hosts[].name
+    pod: order-service-abc
+  - name: payment                  # 静态模式（003 现状不变）
+    url: http://10.0.0.11:8563
+```
+
+### 16.2 BackendResolver 接口（gateway-core 定义，接口倒置）
+
+**文件**：`src/main/java/com/arthas/gateway/backend/BackendResolver.java:18`
+
+005 US2 核心：**懒 resolve** 接口刻意放 gateway-core `backend` 包（**零 fabric8 依赖**，ArchUnit INV-BOUNDARY-1 守护），实现在 orchestration 包（`K8sBackendResolver`，依赖 fabric8）。这是「依赖倒置」——让 gateway-core 的 `BackendEntry` 依赖自己包内的抽象接口，而非 orchestration 的具体类，从而保 gateway-core 零 K8S 依赖。
+
+```java
+// com.arthas.gateway.backend（gateway-core，零 fabric8 依赖）
+public interface BackendResolver {
+    /**
+     * K8S 模式 config → 懒 resolve 出 mcpUrl（调 ensure + 缓存）。
+     * 静态模式（config.url() 非空）→ Optional.empty()（BackendEntry 用 config.url）。
+     *
+     * @return mcpUrl（K8S 模式）；empty（静态模式，旁路）
+     * @throws IllegalStateException K8S 模式但 host 不存在 / ensure 失败（结构化错误传播）
+     */
+    Optional<String> resolveMcpUrl(BackendConfig config);
+}
+```
+
+**装配形态**：`Optional<BackendResolver>`（无 K8S host 配置时不装配 → K8S 模式 backend 路由时报 `no_k8s_resolver`，INV-K8SHOST-4）。实装见 `K8sBackendResolver`（orchestration 包，`K8sBackendResolver.java:38`）：
+
+```java
+@Override
+public Optional<String> resolveMcpUrl(BackendConfig config) {
+    if (!config.isK8sMode()) {
+        return Optional.empty();                                   // 静态模式旁路（INV-K8SHOST-5）
+    }
+    String host = config.k8sHost();
+    ArthasProvisioner provisioner = provisioners.get(host);
+    if (provisioner == null) {
+        throw new K8sResolveException("unknown_k8s_host",         // INV-K8SHOST-3
+                "K8S host 未在 arthas-gateway.k8s-hosts 配置：" + host);
+    }
+    // ... logicalName = {server}-{pod}
+    String mcpUrl = cache.computeIfAbsent(logicalName,            // INV-K8SHOST-2：缓存命中不重复 ensure
+            k -> doEnsure(provisioner, server, host, config.pod(), namespace));
+    return Optional.of(mcpUrl);
+}
+```
+
+**resolve 流程**（`K8sBackendResolver.java:55-85`）：① 静态模式（`!isK8sMode`）→ empty 旁路；② K8S 模式查 host provisioner 不在 → `unknown_k8s_host`（INV-K8SHOST-3）；③ `cache.computeIfAbsent(logicalName, doEnsure)`——命中缓存直接返（INV-K8SHOST-2，不重复 ensure），未命中调 `provisioner.ensure` 拿 mcpUrl，ready/reused 终态缓存返，failed → `K8sResolveException(ensure_failed)`。
+
+### 16.3 BackendEntry 增量：initializeOnce 懒 resolve hook（US2）
+
+**文件**：`src/main/java/com/arthas/gateway/backend/BackendEntry.java:47`
+
+005 US2 在既有「统一拦截层」上叠加**懒 resolve 钩子**：K8S 模式 backend 构造时 `client=null`，首次 `initializeOnce`（DCL 握手）时调 `BackendResolver` resolve 出 mcpUrl 再建 `HttpBackendClient`。统一拦截层四原语（execute/admit/invoke/isHealthy）**不变**——懒 resolve 仅在 DCL 首次握手时触发一次。
+
+**字段增量**（`:50` + `:56-60`）：
+
+```java
+private final Supplier<Optional<BackendResolver>> resolverSupplier;  // 005 US2：懒解析（运行时 initializeOnce 才取）
+// ...
+/** MCP 客户端：静态模式构造时预建（config.url）；K8S 模式（005 US2）传 null，
+ *  首次 initializeOnce 时懒 resolve 出 mcpUrl 再建。 */
+private volatile BackendClient client;
+```
+
+**主构造器注入 Supplier**（`:62-70`）——用 `Supplier<Optional<BackendResolver>>` 而非构造期 `Optional`，推迟到运行时 `initializeOnce` 解析，打破 `BackendResolver → ArthasProvisioner → DynamicBackendStore → BackendConfigWatcher → BackendEntryFactory` 的装配环：
+
+```java
+/** 005 US2 懒 resolve 主构造：注入 Supplier（运行时 initializeOnce 才解析，避免启动期装配环）。 */
+public BackendEntry(BackendConfig config, BackendClient client, CircuitBreaker breaker,
+                    Supplier<Optional<BackendResolver>> resolverSupplier) {
+    this.config = Objects.requireNonNull(config, "config 不可为空");
+    this.client = client;                       // 静态模式预建；K8S 模式传 null（懒建）
+    this.breaker = Objects.requireNonNull(breaker, "breaker 不可为空");
+    this.resolverSupplier = Objects.requireNonNull(resolverSupplier, "resolverSupplier 不可为空");
+    this.taskSlots = new Semaphore(config.maxConcurrentTasks());
+}
+```
+
+向后兼容构造器（`:72-81`）：`Optional<BackendResolver>` 重载 + 既有 3 参构造（resolver=empty，003/004 调用点零改动）。
+
+**initializeOnce 增量**（`:196-208`）—— DCL 内首行调 `resolveClientIfNeeded()`：
+
+```java
+private void initializeOnce() {
+    if (initialized) {
+        return;
+    }
+    synchronized (initLock) {
+        if (!initialized) {
+            BackendClient c = resolveClientIfNeeded();   // 005 US2：K8S 模式懒 resolve 建 client
+            c.initialize();
+            this.client = c;
+            initialized = true;
+        }
+    }
+}
+```
+
+**resolveClientIfNeeded**（`:215-228`）—— 懒 resolve 核心，三类分支：
+
+```java
+private BackendClient resolveClientIfNeeded() {
+    if (this.client != null) {
+        return this.client;                              // 静态模式预建
+    }
+    Optional<BackendResolver> r = resolverSupplier.get();
+    if (r.isEmpty()) {
+        throw new BackendUnreachableException(new IllegalStateException(
+                "no_k8s_resolver: K8S 模式 backend " + config.name() + " 无 BackendResolver（未配 arthas-gateway.k8s-hosts）"));
+    }                                                    // INV-K8SHOST-4
+    String mcpUrl = r.get().resolveMcpUrl(config)
+            .orElseThrow(() -> new BackendUnreachableException(new IllegalStateException(
+                    "no_k8s_resolver: K8S 模式 backend " + config.name() + " resolve 返 empty")));
+    return new HttpBackendClient(config.withResolvedUrl(mcpUrl));  // K8S 模式 → 用 mcpUrl 建 client
+}
+```
+
+- 静态模式（`client` 预建）→ 直接复用，零开销。
+- K8S 模式 + 无 resolver（`resolverSupplier.get()` empty，未配 `k8s-hosts`）→ `no_k8s_resolver`（INV-K8SHOST-4）。
+- K8S 模式 + resolver 返 mcpUrl → `config.withResolvedUrl(mcpUrl)` 建新 `HttpBackendClient`（首次触发 ensure，后续命中 resolver 缓存）。
+
+**不变量**：execute/admit/invoke/isHealthy 语义不变（统一拦截层，§9）；懒 resolve 仅 DCL 首次握手触发一次（invoke 失败仍按既有故障分类走 `recordFailure`/`recordSuccess`，C-CB-1/2 不破）。
+
+### 16.4 BackendEntryFactory 增量：ObjectProvider 注入（US2）
+
+**文件**：`src/main/java/com/arthas/gateway/backend/BackendEntryFactory.java:32`
+
+005 US2 把 resolver 注入改为 Spring `ObjectProvider<BackendResolver>`（**非**构造期 `Optional`）。原因（`:22-27` 注释）：`BackendResolver → ArthasProvisioner → DynamicBackendStore → BackendConfigWatcher → 本工厂` 形成循环，构造期注入会触发 `BeanCurrentlyInCreationException`；`ObjectProvider` 推迟到 `create()` 时解析，打破构造期环。
+
+**字段与构造器**（`:35` + `:47-51`）：
+
+```java
+private final ObjectProvider<BackendResolver> resolverProvider;
+
+// ... 测试构造器（无 resolver，静态模式）省略
+
+/** 005 US2：Spring 注入 ObjectProvider（懒解析，避免构造期循环依赖）。 */
+@Autowired
+public BackendEntryFactory(ObjectProvider<BackendResolver> resolverProvider) {
+    this(System::nanoTime, resolverProvider);
+}
+```
+
+**create 增量**（`:63-72`）—— 静态模式预建 client，K8S 模式传 null + 用 Supplier 懒解析：
+
+```java
+public BackendEntry create(BackendConfig config) {
+    BackendClient client = config.isK8sMode() ? null : new HttpBackendClient(config);  // K8S 模式 null（懒建）
+    CircuitBreaker breaker = CircuitBreaker.create(clock);
+    // Supplier 懒解析：create() 不触发 backendResolver（避免启动期 registryHolder↔dynamicBackendStore 装配环）；
+    // 运行时 initializeOnce 才解析（此时 context 已就绪）
+    Supplier<Optional<BackendResolver>> supplier = () -> resolverProvider != null
+            ? Optional.ofNullable(resolverProvider.getIfAvailable())
+            : Optional.empty();
+    return new BackendEntry(config, client, breaker, supplier);
+}
+```
+
+- `config.isK8sMode()` → K8S 模式（k8sHost 非空）传 `null` client，由 `BackendEntry.resolveClientIfNeeded` 懒建（INV-K8SHOST-4）。
+- 静态模式 → 构造时预建 `HttpBackendClient(config)`（003 现状不变）。
+- Supplier 闭包运行时（`initializeOnce`）才 `resolverProvider.getIfAvailable()`，无 K8S 配置时返 empty。
+
+### 16.5 装配链与契约总览
+
+**`K8sOrchestrationConfig` 装配**（`src/main/java/com/arthas/gateway/config/K8sOrchestrationConfig.java:107-129`）：`backendResolver` bean 遍历 `arthas-gateway.k8s-hosts` 列表，每 host 建独立 `KubernetesClient` + `NodePortExposer` + `ArthasProvisioner`（research.md R5：每 host 独立 kubeconfig），组成 host→provisioner 映射注入 `K8sBackendResolver`。`@Lazy`（`:108`）避免启动期 registryHolder↔dynamicBackendStore 环（首次 `create()` 经 ObjectProvider 创建，此时启动已完成）。
+
+**005 新增契约**（见 `specs/005-k8s-orchestration-iteration/contracts/orchestration-iteration-invariants.md`）：
+
+| 契约 | 含义 | 守护点 |
+|------|------|--------|
+| K-ENS-10 | 复用带 label 的现有 Service（找不到回退新建） | `NodePortExposer.expose`（`:74-87`） |
+| K-ENS-11 | ClusterIP→NodePort：patch type + 加端口 | `patchServiceAddNodePort`（`:123-165`） |
+| K-ENS-12 | 幂等：已含同 targetPort NodePort → 复用，不重复 patch | `nodePortForTargetPort`（`:168-179`） |
+| INV-K8SHOST-1 | `url` 与 `k8sHost` 互斥；K8S 模式 `pod` 必填 | `BackendConfig.validateModeRouting`（`:66-80`） |
+| INV-K8SHOST-2 | 缓存命中不重复 ensure | `K8sBackendResolver.cache.computeIfAbsent`（`:72`） |
+| INV-K8SHOST-3 | unknown host → 结构化错误 | `K8sResolveException(unknown_k8s_host)`（`:62-64`） |
+| INV-K8SHOST-4 | K8S 模式无 resolver → `no_k8s_resolver` | `BackendEntry.resolveClientIfNeeded`（`:219-226`） |
+| INV-K8SHOST-5 | 静态模式（url 非空）→ resolveMcpUrl 返 empty 旁路 | `K8sBackendResolver.resolveMcpUrl`（`:57-58`） |
+| INV-LAUNCHER-1 | `ArthasProvisioner` 删硬编码，委托 `ArthasLauncher` | `locateJvm`/`startArthas` 委托（`ArthasProvisioner.java:256-298`） |
+| INV-LAUNCHER-2 | `DefaultArthasLauncher` = 003 现状逻辑（`@ConditionalOnMissingBean`） | `DefaultArthasLauncher.java:14` |
+| INV-LAUNCHER-3 | 用户 `@Primary` 实现覆盖默认 | `K8sOrchestrationConfig.defaultArthasLauncher`（`:81-86`） |
+| INV-LAUNCHER-4 | `LaunchException` → ensure failed 映射不破 K-ENS-4/5 | `ArthasProvisioner` catch（`:260-262`/`:295-297`） |
+| INV-BOUNDARY-1/2 | gateway-core 零 fabric8 依赖（`BackendResolver` 接口无 fabric8 import） | `PackageBoundaryTest` ArchUnit |
+
+---
+
 > **下一步**：Part 3 深入 002 韧性设计（熔断/限流/超时/隔离/错误结构化 + 15 项整改 + 契约测试体系）。

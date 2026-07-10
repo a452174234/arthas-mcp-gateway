@@ -161,6 +161,49 @@
 | **I-2** | 热重载不误删动态 target（compose 合并静态∪动态） |
 | **I-3** | 动态名 ∩ 静态种子 → 拒绝（命名冲突保护） |
 
+### 88.3 Service 复用契约（005 US1，K-ENS-10/11/12）
+
+> 来源：`specs/005-k8s-orchestration-iteration/contracts/orchestration-iteration-invariants.md`。验证：`NodePortExposerTest`（单测，fabric8 mock server）/ `NodePortExposerContractIT`（真实 k3s）。
+
+| 断言 | 含义 | 验证（真实条件） | 代码锚点 |
+|------|------|------------------|----------|
+| **K-ENS-10** | `NodePortExposer.expose` 优先用 labelSelector 查带 `arthas-mcp-gateway/target=<sanitize(logical)>` label 的现有 Service：命中→patch 加 NodePort 端口（不新建）；未命中→回退新建独立 `arthas-mcp-<sanitize>` Service（003 现状，FR-004 向后兼容） | 单测：mock server 命中走 patch（`serviceName=business-svc`）/ 未命中回退新建（`arthas-mcp-` 前缀）；IT：真实 k3s 复用 nodePort=30050 / 回退新建 k3s 分配 | `NodePortExposer.expose:63`（分支 :74-87）+ `findLabeledService:106` |
+| **K-ENS-11** | 命中 Service 若 `spec.type≠NodePort`（如 ClusterIP）→ patch `spec.type=NodePort` + 加端口（K8S 在 nodePortRange 分配）；运维须知既有端口随之暴露到节点 | 单测：ClusterIP→PUT `type=NodePort` + 加端口；IT：真实 k3s `spec.type=="NodePort"` + `nodePort∈[30000,32767]` | `NodePortExposer.patchServiceAddNodePort:123`（`withType("NodePort"):156`） |
+| **K-ENS-12** | 重复 ensure（同 logical）命中同 Service 已含同 targetPort 端口→复用既有 nodePort，不重复添加（K-ENS-2 幂等复用的 Service 侧延伸） | 单测：二次 ensure ports 不变 + nodePort 复用；IT：nodePort=30052 + `ports.size()==1`（不重复增长） | `NodePortExposer.nodePortForTargetPort:168`（幂等判定） |
+
+### 88.4 K8S Host 配置不变量（005 US2，INV-K8SHOST-1~5）
+
+> 来源：同上。验证：`K8sBackendResolverTest`（单测）/ `K8sBackendResolverContractIT`（真实 k3s）/ `BackendEntryLazyResolveTest`（懒 resolve hook）。
+
+| 断言 | 含义 | 验证 | 代码锚点 |
+|------|------|------|----------|
+| **INV-K8SHOST-1** | BackendConfig 的 `url` 与 `k8sHost` 互斥：皆有/皆空→加载校验失败，保留旧注册表（不半替换）；`k8sHost` 非空时 `pod` 必填；老 config（无 k8sHost）= 静态模式零迁移兼容 | 配置加载校验 + `isK8sMode()` 判定 | `BackendConfig`（k8sHost/pod 字段 + isK8sMode） |
+| **INV-K8SHOST-2** | 按 logicalName（`{host}-{pod}`）缓存 mcpUrl；二次 resolve 同 target→缓存命中，不重复 ensure（K-ENS-2 延伸） | `K8sBackendResolverTest` 缓存（`verify(times(1))` ensure 仅一次）；ContractIT 二次 mcpUrl 不变 | `K8sBackendResolver.resolveMcpUrl:55`（`cache.computeIfAbsent:72`） |
+| **INV-K8SHOST-3** | K8S 模式 backend 引用不存在的 `k8sHost` 名→懒 resolve 抛 `unknown_k8s_host`（结构化错误，不静默成功） | `K8sBackendResolverTest.unknownHostThrowsUnknownK8sHost` | `K8sBackendResolver:62-64`（`K8sResolveException`） |
+| **INV-K8SHOST-4** | 网关未启用 K8S（无 kubeconfig/resolver 未装配）→ K8S 模式 backend 路由抛 `no_k8s_resolver`（提示需配 K8S）；静态模式不受影响 | `BackendEntryLazyResolveTest.k8sModeWithoutResolverThrowsNoK8sResolver` | `BackendEntry.resolveClientIfNeeded:215`（`:220-223` no_k8s_resolver） |
+| **INV-K8SHOST-5** | 静态模式 backend（url 非空、无 k8sHost）→ `resolveMcpUrl` 返 `Optional.empty()`，BackendEntry 用 config.url（001/003 行为逐字不变） | `K8sBackendResolverTest.staticModeBypassesResolve` + `BackendEntryLazyResolveTest.staticModeUsesPrebuiltClientBypassingResolver` | `K8sBackendResolver.resolveMcpUrl:57-59`（静态旁路） |
+
+### 88.5 ArthasLauncher SPI 不变量（005 US3，INV-LAUNCHER-1~5）
+
+> 来源：同上。验证：`ArthasLauncherSpiTest`（单测，spy）/ `CustomLauncherContractIT`（真实 Spring 装配）/ `TestArthasLauncher`（真实实现 fixture）。
+
+| 断言 | 含义 | 验证 | 代码锚点 |
+|------|------|------|----------|
+| **INV-LAUNCHER-1** | `ArthasProvisioner.doProvision` 委托 `ArthasLauncher.locatePid` + `startArthas`（不再硬编码 `java`/`jps` 命令字符串） | `ArthasLauncherSpiTest` 委托（`verify(launcher).locatePid` + `startArthas(eq(12345L))` pid 透传）→ready | `ArthasProvisioner.locateJvm:257` + `startArthas:292`（`launcher.locatePid/startArthas`） |
+| **INV-LAUNCHER-2** | 无用户自定义实现时，`DefaultArthasLauncher`（003 现状逻辑外移）装配，行为与 003 逐字一致（K-ENS-4/5 不破） | `K8sEnsureContractIT`（003 既有用例）全绿 = DefaultArthasLauncher 行为不变 | `DefaultArthasLauncher.locatePid:20`（`jps -q`）+ `startArthas:41`（`java -jar`） |
+| **INV-LAUNCHER-3** | 用户 `@Component @Primary ArthasLauncher` 实现自动覆盖 `DefaultArthasLauncher`（Spring 装配优先级） | `CustomLauncherContractIT.customPrimaryLauncherReplacesDefault`（`isInstanceOf(TestArthasLauncher)`） | `DefaultArthasLauncher` `@ConditionalOnMissingBean` 让位 + `@Primary` 覆盖 |
+| **INV-LAUNCHER-4** | `locatePid`/`startArthas` 失败抛 `LaunchException`（含 phase+reason）→ ArthasProvisioner 映射 ensure failed（`failed@locate_jvm`/`failed@start_arthas`），与 003 故障分类一致 | `ArthasLauncherSpiTest` 两异常映射（locatePid→`no_jvm@locate_jvm`；startArthas→`attach_failed@start_arthas`，status=failed + error.reason/phase） | `ArthasProvisioner.locateJvm:260-262`（`LaunchException→ProvisionException`）→ `doProvision:245-251`（failed） |
+| **INV-LAUNCHER-5** | SPI 测试含 test fixture **真实实现**（`TestArthasLauncher`，非 Mockito mock），验证委托 + 装配优先级 + 接口契约（宪法原则七，零桩） | `TestArthasLauncher`（`implements ArthasLauncher`，探针 `locateCalls`/`lastContext`/`lastPid`/`failOnStart`）+ ContractIT 验探针 `lastPid()=-1L` | `TestArthasLauncher:22` |
+
+### 88.6 包边界不变量（005 FR-014，ArchUnit 守护）
+
+> 来源：同上。验证：`PackageBoundaryTest` 规则 4/5（静态字节码扫描）。
+
+| 断言 | 含义 | 验证 | 代码锚点 |
+|------|------|------|----------|
+| **INV-BOUNDARY-1** | `BackendResolver` 接口（`backend` 包，gateway-core）**不得 import** `io.fabric8.*`/`io.kubernetes.*`/`com.arthas.gateway.orchestration.*`——接口倒置，诊断核心依赖零 K8S 接口 | `PackageBoundaryTest.backendResolverInterfaceResidesInBackendPackage`（`should().resideInAPackage("...backend")`） | `BackendResolver:18`（backend 包，零 fabric8） |
+| **INV-BOUNDARY-2** | `K8sBackendResolver`（实现）驻 `orchestration` 包（依赖 fabric8/ArthasProvisioner 合法），经 config（组合根）装配为 `Optional<BackendResolver>` 注入 BackendEntry（接口，非实现） | `PackageBoundaryTest.k8sBackendResolverResidesInOrchestration`（`should().resideInAPackage("...orchestration")`） | `K8sBackendResolver:38`（orchestration 包） |
+
 ---
 
 ## 第 89 章 002 整改不变量（remediation-invariants）
@@ -304,7 +347,13 @@
 | INV-DYN-1 | BackendAdminContractIT | BackendAdminService.update:95 |
 | INV-SWITCH-1/2 | AdminCapabilitySwitchTest/IT | @ConditionalOnProperty on Controllers |
 | INV-WEB-1 | （构建 + 浏览器） | vite.config.ts + SpaConfig + adminClient.ts |
-| 包边界 | PackageBoundaryTest | ArchUnit 3 规则 |
+| 包边界 | PackageBoundaryTest | ArchUnit 5 规则（003×3 + 005×2） |
+| K-ENS-10/11/12 | NodePortExposerTest / NodePortExposerContractIT | NodePortExposer.expose:63 + findLabeledService:106 + patchServiceAddNodePort:123 + nodePortForTargetPort:168 |
+| INV-K8SHOST-2/3 | K8sBackendResolverTest / K8sBackendResolverContractIT | K8sBackendResolver.resolveMcpUrl:55（cache.computeIfAbsent:72 / unknown_k8s_host:63） |
+| INV-K8SHOST-4/5 | BackendEntryLazyResolveTest | BackendEntry.resolveClientIfNeeded:215（no_k8s_resolver:220，静态旁路用预建 client） |
+| INV-LAUNCHER-1/4 | ArthasLauncherSpiTest | ArthasProvisioner.locateJvm:257 + startArthas:292（委托 launcher；LaunchException→ProvisionException→failed:245） |
+| INV-LAUNCHER-2/3 | CustomLauncherContractIT | DefaultArthasLauncher.locatePid:20 + startArthas:41（003 现状）+ @Primary 覆盖（TestLauncherConfig） |
+| INV-BOUNDARY-1/2 | PackageBoundaryTest | ArchUnit 规则 4/5（backendResolverInterfaceResidesInBackendPackage:93 / k8sBackendResolverResidesInOrchestration:107） |
 
 ---
 

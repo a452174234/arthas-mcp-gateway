@@ -1839,6 +1839,32 @@ metadata:
 **How to apply:** 遇到"删除相关内容"请求，按"沾边即整体删"处理；对弱关联项（如仅 frontmatter 署名、单处引用）主动标注并说明，给用户纠正/恢复机会。删除不可逆，优先指明恢复途径。
 ```
 
+### `fabric8-mock-server.md`
+
+```markdown
+---
+name: fabric8-mock-server
+description: 测 fabric8 KubernetesClient fluent 链用 kubernetes-server-mock，别用 Mockito RETURNS_DEEP_STUBS
+metadata: 
+  node_type: memory
+  type: reference
+  originSessionId: 763c7b04-e00d-4a6b-b6b3-b9065def0b03
+---
+
+测直接持 `KubernetesClient` 调 fluent 链（`.services().inNamespace().withLabel().list()` 等）的类（如 NodePortExposer），用 fabric8 官方 **`io.fabric8:kubernetes-server-mock`**（test scope，与 kubernetes-client 同版本 7.6.1）的 `KubernetesMockServer`（`@EnableKubernetesMockClient(crud=false)` 请求-响应模式），**不要**用 Mockito `RETURNS_DEEP_STUBS`。
+
+**Why**：mock-maker-inline 下 RETURNS_DEEP_STUBS 对 fabric8 复杂泛型 fluent 链不可靠——`.services().inNamespace(ns)` 中间返回 null（`NonNamespaceOperation.withLabel` NPE），且混合 argument matcher 报 `InvalidUseOfMatchers`。
+
+**How to apply**：
+- pom 加 `io.fabric8:kubernetes-server-mock:<同 client 版本>` test 依赖（官方 SDK，非新工具链）。
+- `@EnableKubernetesMockClient` 注入 `KubernetesMockServer mockServer` + `KubernetesClient client`（PER_METHOD，每测试独立）。
+- mock server **精确匹配 path+query**：labelSelector 请求 path 含完整 encoded query（`/api/v1/namespaces/default/services?labelSelector=arthas-mcp-gateway%2Ftarget%3D<value>`，`/`→`%2F`、`=`→`%3D`），`withPath` 须含全 query；CRUD=false 下 `andReturn(200, fabric8Model)` 自动序列化。
+- fabric8 `resource(svc).update()` 在 svc 无 resourceVersion 时先 GET 再 PUT——测 patch 路径要同时注册 GET + PUT。
+- HTTP 真实性（真实 nodePort 分配等）仍由真实 k3s 契约 IT 覆盖；mock server 仅验证决策逻辑。
+
+参考 `NodePortExposerTest`（5 单测：label 查/patch/幂等/回退）。相关：[[remote-path-use-string]]
+```
+
 ### `fabric8-upload-needs-commons-compress.md`
 
 ```markdown
@@ -1980,6 +2006,30 @@ metadata:
 - [debian-docker SSH 免密路线](debian-docker-ssh-access.md) — on-debian 脚本(~/bin)走 SSH key 免密登录 root@192.168.31.92；BatchMode 无密码落盘
 - [fabric8 upload 需 commons-compress](fabric8-upload-needs-commons-compress.md) — fabric8 .file().upload() 运行时需 commons-compress(fabric8 optional→uber jar 排除→NoClassDefFoundError)；pom 显式声明 1.28.0 入包；本地 mvn 是 3.5.3 老版须用 ./mvnw
 - [codebase-memory-mcp 安装](codebase-memory-mcp-install.md) — 二进制在 ~/.local/bin/，配置在项目 .mcp.json；Windows install 脚本写错位置(~/.claude/.mcp.json CC 不读)走手动；改完需重启 CC 才生效
+- [fabric8 mock server](fabric8-mock-server.md) — 测 KubernetesClient fluent 链用 kubernetes-server-mock（@EnableKubernetesMockClient），别用 RETURNS_DEEP_STUBS（inNamespace 中间返 null）；labelSelector path 须含完整 encoded query
+- [Spring 装配环](spring-circular-objectprovider.md) — registryHolder↔dynamicBackendStore 环：注入点用 ObjectProvider<T> + create 传 Supplier 运行时解析 + 被注入 @Bean @Lazy；仅 @Lazy 或仅 ObjectProvider 都不够
+- [远程路径用 String](remote-path-use-string.md) — 传给 pod/Linux 的路径用 String（forward slash），别用 Path；Windows Path.toString 转 \ 让 java -jar 找不到 jar（真实 IT 才暴露）
+```
+
+### `remote-path-use-string.md`
+
+```markdown
+---
+name: remote-path-use-string
+description: 传给远程 pod/Linux 的路径用 String（forward slash），别用 java.nio.file.Path
+metadata: 
+  node_type: memory
+  type: feedback
+  originSessionId: 763c7b04-e00d-4a6b-b6b3-b9065def0b03
+---
+
+传给**远程 pod / Linux 容器**执行的路径（如 fabric8 exec 的 `java -jar <jarPath>`）用 **`String`**（`/tmp/arthas-boot.jar` forward slash），**不要**用 `java.nio.file.Path`。
+
+**Why**：开发机是 Windows，`Path.of("/tmp/arthas-boot.jar").toString()` → `\tmp\arthas-boot.jar`（反斜杠）。这个字符串原样下发到 Linux pod，`java -jar \tmp\arthas-boot.jar` → `Error: Unable to access jarfile \tmp\arthas-boot.jar`。本地单测（mock exec）发现不了（mock 不校验 path 合法性），只到真实 k3s 契约 IT 才暴露。
+
+**How to apply**：context/参数里的远程 path 字段声明为 `String`（不是 `Path`）。如 005 `ArthasLauncher.LaunchContext.arthasBootJar` 从 `Path` 改 `String`，`ArthasProvisioner.buildContext` 直接传 `REMOTE_ARTHAS_JAR`（String 常量）而非 `Path.of(...)`。`DefaultArthasLauncher.startArthas` 用 `ctx.arthasBootJar()`（String）拼命令，不 `.toString()`。
+
+本地 `Path` 仅用于本机文件（如 arthas-boot.jar 上传源 `Files.isReadable`），远程目标用 String。相关：[[fabric8-mock-server]]
 ```
 
 ### `resident-process-nohup-survives-session.md`
@@ -2118,3 +2168,29 @@ metadata:
 相关：[[github-com-unreachable]]
 ```
 
+### `spring-circular-objectprovider.md`
+
+```markdown
+---
+name: spring-circular-objectprovider
+description: registryHolder↔dynamicBackendStore 装配环，用 ObjectProvider<T> + @Lazy 打破，别构造期注入
+metadata: 
+  node_type: memory
+  type: reference
+  originSessionId: 763c7b04-e00d-4a6b-b6b3-b9065def0b03
+---
+
+往 `BackendEntryFactory`（被 `BackendRegistryBootstrap.registryHolder` 构造期经 `factory.create()` 调用）注入新依赖时，若该依赖链回到 registryHolder（如 `BackendResolver → ArthasProvisioner → DynamicBackendStore → BackendConfigWatcher → registryHolder`），会形成**启动期循环依赖**（`BeanCurrentlyInCreationException`）。**解法**：注入点用 `ObjectProvider<T>`（非 `Optional<T>``/`@Autowired T`），且 `@Bean` 加 `@Lazy`。
+
+**Why**：
+- `Optional<T>` 构造期注入仍触发 T 的 eager 解析 → 环。
+- `BackendRegistryBootstrap.load()` 在 registryHolder 创建期间调 `factory.create()`——若 `create()` 立即解析依赖（如 `resolverProvider.getIfAvailable()`），此时 registryHolder 尚未创建完成 → 环。
+- `ObjectProvider` 是懒持有；关键是 `create()` **不**调用 `getIfAvailable()`，而是传一个 `Supplier<Optional<T>>` 给 BackendEntry，推迟到运行时 `initializeOnce()` 才解析（此时 context 已就绪）。
+
+**How to apply**（005 US2 BackendResolver 注入 BackendEntryFactory 的实例）：
+1. `BackendEntryFactory` 持 `ObjectProvider<BackendResolver>`；`create()` 构造 `Supplier<Optional<BackendResolver>> = () -> Optional.ofNullable(provider.getIfAvailable())`，传 `new BackendEntry(config, client, breaker, supplier)`。
+2. `BackendEntry` 持 `Supplier<Optional<BackendResolver>>`（非 Optional），`initializeOnce` 运行时 `.get()` 解析。
+3. 被注入的 bean（`backendResolver` @Bean）加 `@Lazy`，避免启动期 eager 创建触发链。
+
+仅靠 `@Lazy` 不够（registryHolder 构造期 factory.create 仍触发）；仅 ObjectProvider 不够（create 立即解析仍触发）——**两者配合**。
+```

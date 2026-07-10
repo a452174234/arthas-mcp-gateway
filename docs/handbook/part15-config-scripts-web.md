@@ -146,6 +146,20 @@
             <version>1.3.0</version>
             <scope>test</scope>
         </dependency>
+        <!--
+            fabric8 官方 K8S API mock server（005 US1 T009：NodePortExposer 决策逻辑单测）。
+            NodePortExposer 直接持 KubernetesClient 调 fluent 链（services/pods/nodes），与 fabric8
+            紧耦合——Mockito RETURNS_DEEP_STUBS 对 fabric8 复杂泛型 fluent 链不友好（inNamespace 中间返回 null）。
+            fabric8 官方测试方式即 KubernetesMockServer（真实 HTTP API 模拟：labelSelector 查询、PATCH、POST）。
+            与既有 kubernetes-client 同源同版本 7.6.1（fabric8 官方 SDK，test-scope，不引新工具链；宪法「优先官方 SDK」）。
+            真实 k3s 端到端仍由 NodePortExposerContractIT（T010）覆盖。
+        -->
+        <dependency>
+            <groupId>io.fabric8</groupId>
+            <artifactId>kubernetes-server-mock</artifactId>
+            <version>7.6.1</version>
+            <scope>test</scope>
+        </dependency>
 
         <!--
             arthas-boot.jar 不作为本工程依赖（用户约束 2026-06-20：本工程不依赖 arthas——
@@ -328,6 +342,14 @@ arthas-gateway:
     node-port-range: 30000-32767
     # ensure 全流程超时（注入 + 暴露 + 健康检查 + 注册），须 > arthas attach + 健康轮询
     ensure-timeout: 5m
+  # K8S Host 列表（005 特性）：远端 Linux K8S 集群入口声明（BackendConfig K8S 模式 k8s-host 引用 name）。
+  # 每 host 独立 kubeconfig + namespace；重启生效（热重载后置）。MVP 默认空（K8S 模式 backend 未配置时用 k8s.kubeconfig 单集群）。
+  # 示例：
+  # k8s-hosts:
+  #   - name: debian-prod
+  #     kubeconfig: test-env/k8s/kubeconfig/k3s-admin.yaml
+  #     namespace: default
+  k8s-hosts: []
   # portal 管理面能力开关（004 特性，research.md R9：@ConditionalOnProperty 按需启用，默认开）
   admin:
     crud:

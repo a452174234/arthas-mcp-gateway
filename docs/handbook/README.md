@@ -2,7 +2,7 @@
 
 > 本手册结合 spec（001/002/003/004）与代码实现，事无巨细地描绘 arthas MCP 网关的**技术栈、能力、代码实现细节**。每条结论援引 `file_path:line_number`（可点击），代码片段为当前实现实读摘录。
 >
-> **版本基线**：0.1.0-SNAPSHOT | JDK 21 | Spring Boot 4.1.0 | Spring AI 2.0.0 | MCP Java SDK 2.0.0 | 最后更新 2026-07-09
+> **版本基线**：0.1.0-SNAPSHOT | JDK 21 | Spring Boot 4.1.0 | Spring AI 2.0.0 | MCP Java SDK 2.0.0 | 最后更新 2026-07-10
 >
 > **手册组织**（核心解读 Part 1–11 + 工程附录 Part 13–19，共 18 个文件，总约 2.0 MB）：
 >

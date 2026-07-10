@@ -50,6 +50,15 @@ arthas-gateway:
     # mcp-port: 8563
     # arthas-version: 4.3.0
     # arthas-password: arthas-mcp-gateway # 生产应覆盖
+  # === K8S Host 列表（005）——远端 K8S 集群入口声明 ===
+  # BackendConfig 的 K8S 模式（k8sHost 字段）引用此 name；K8sBackendResolver 据 host 的
+  # kubeconfig 构建独立 KubernetesClient + ArthasProvisioner（research.md R5）。
+  # 配置位置 = application.yml（重启生效，热重载后置）；MVP 默认空。
+  # k8s-hosts:
+  #   - name: debian-prod                  # 必填，跨 host 唯一（BackendConfig.k8sHost 引用此名）
+  #     kubeconfig: test-env/k8s/kubeconfig/k3s-admin.yaml   # 必填，独立集群凭证（启动期校验可读）
+  #     namespace: default                 # 缺省 default
+  k8s-hosts: []
   # === portal 管理面能力开关（004） ===
   admin:
     crud:
@@ -94,6 +103,10 @@ logging:
 | `arthas-gateway.k8s.mcp-port` | `8563` | GatewayProperties.K8s | pod 内 arthas MCP 端口 |
 | `arthas-gateway.k8s.arthas-version` | `4.3.0` | GatewayProperties.K8s | arthas 版本 |
 | `arthas-gateway.k8s.arthas-password` | `arthas-mcp-gateway` | GatewayProperties.K8s | arthas 鉴权密码（生产应覆盖） |
+| `arthas-gateway.k8s-hosts` | `[]`（空 List） | GatewayProperties.K8sHost（List） | 005：远端 K8S 集群入口列表（重启生效，热重载后置） |
+| `arthas-gateway.k8s-hosts[].name` | —（必填） | GatewayProperties.K8sHost | host 逻辑名（跨 host 唯一，BackendConfig.k8sHost 引用此名） |
+| `arthas-gateway.k8s-hosts[].kubeconfig` | —（必填） | GatewayProperties.K8sHost | 独立集群 kubeconfig 路径（启动期校验可读） |
+| `arthas-gateway.k8s-hosts[].namespace` | `default` | GatewayProperties.K8sHost | 该 host 默认 namespace（缺省 default） |
 | `arthas-gateway.admin.crud.enabled` | `true` | GatewayProperties.Admin | CRUD 开关 |
 | `arthas-gateway.admin.export.enabled` | `true` | GatewayProperties.Admin | 导出/列表开关 |
 | `management.endpoints.web.exposure.include` | `health,info` | application.yml | Actuator 暴露 |
@@ -118,7 +131,32 @@ backends:
     auth:
       mode: BEARER
       token: ${PAYMENT_TOKEN}           # 环境变量占位（机密不入库）
+  # === K8S 模式（005）——声明远端 K8S 集群入口 + 业务 pod，首次路由懒 resolve 出 mcpUrl ===
+  # 与 url 互斥（INV-K8SHOST-1）：K8S 模式不写 url，改写 k8sHost + pod；首次 tools/call 时
+  # K8sBackendResolver 调 ensure（注入 arthas + NodePort 暴露）拿到 mcpUrl 并缓存。
+  - name: order-k8s
+    k8sHost: debian-prod                # 引用 arthas-gateway.k8s-hosts[].name（必填，与 url 互斥）
+    pod: order-service-7d6f-x9          # 业务 pod 名（K8S 模式必填，ensure 注入目标）
+    protocol: STREAMABLE
+    auth:
+      mode: BEARER
+      token: ${ORDER_K8S_TOKEN}         # ensure 下发的 arthas 鉴权令牌（机密不入库）
+    connectTimeoutMs: 5000
+    callTimeoutMs: 30000
+    maxConcurrentTasks: 5
 ```
+
+#### 45.2.1 寻址模式字段（005 增量，INV-K8SHOST-1）
+
+后端映射表两种寻址模式互斥（`BackendConfig.java:66-80` 校验）：
+
+| 字段 | 模式 | 必填 | 说明 |
+|------|------|------|------|
+| `url` | 静态（003/004 既有） | 二选一 | arthas MCP 根 URL（无 `/mcp` 后缀），直连业务 arthas |
+| `k8sHost` | K8S（005 新增） | 二选一 | 引用 `arthas-gateway.k8s-hosts[].name`，声明远端集群入口；与 `url` 互斥 |
+| `pod` | K8S | 是（K8S 模式） | 业务 pod 名，ensure 注入 arthas 的目标 |
+
+> 互斥规则（`BackendConfig.validateModeRouting`）：`url` 与 `k8sHost` 不可同时配置、不可皆空；K8S 模式（`k8sHost` 非空）`pod` 必填。首次路由时 `BackendEntry.resolveClientIfNeeded`（`BackendEntry.java:215-228`）懒 resolve 出 mcpUrl，用 `config.withResolvedUrl(mcpUrl)` 建连。
 
 ---
 
@@ -243,6 +281,18 @@ vmtool, watch
 | `name_conflict` | 动态名 ∩ 静态种子名 / 同名异 URL | `register` |
 | `k8s_forbidden` | RBAC 403 | `locate_jvm`/`install_arthas`/... |
 | `k8s_unreachable` | K8S API 不可达 | — |
+
+#### K8S 模式懒 resolve 路径（005 增量，BackendEntry 首次握手）
+
+> K8S 模式 backend（`k8sHost` 非空）首次 `tools/call` 时由 `BackendResolver` 懒 resolve（`K8sBackendResolver`）。
+> 这三个细化 reason 在异常 cause 链 / 日志中可见；对外（JSON-RPC `data.reason`）经 `BackendUnreachableException`
+> 统一翻译为 `backend_unreachable`（`ToolsCallRouter.java:53,173`），熔断器计失败（C-CB-1）。
+
+| reason | 触发 | 来源 |
+|--------|------|------|
+| `unknown_k8s_host` | K8S 模式 backend 的 `k8sHost` 引用了未在 `arthas-gateway.k8s-hosts` 配置的 name（INV-K8SHOST-3） | `K8sBackendResolver.java:63`（`K8sResolveException`） |
+| `ensure_failed` | 懒 resolve 调 ensure 终态非 `ready`/`reused`（如 attach 失败、健康检查超时、NodePort 分配失败等，原因见 `OrchestrationRecord.Error`） | `K8sBackendResolver.java:80`（`K8sResolveException`） |
+| `no_k8s_resolver` | K8S 模式 backend 路由但未装配 `BackendResolver`（未配 `k8s-hosts` / 非 K8S 编排装配），INV-K8SHOST-4 | `BackendEntry.java:222,226`（`BackendUnreachableException` cause） |
 
 #### portal 管理面（AdminExceptionHandler）
 

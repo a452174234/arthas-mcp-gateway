@@ -81,6 +81,15 @@
 | `OrderServiceTest` | OrderService.hotMethod 行为 |
 | `FakeBackendClientTest` | 测试用 client |
 
+### 58.8 K8S 编排迭代单测（005）
+
+| 测试类 | 目的 | 关键断言 |
+|--------|------|----------|
+| `NodePortExposerTest`（orchestration） | K-ENS-10/11/12 Service 复用决策逻辑（fabric8 官方 `KubernetesMockServer`，请求-响应模式模拟真实 K8S API server） | 带 `arthas-mcp-gateway/target` label 的现有 NodePort Service 命中→复用业务 Service 名 + 既有 nodePort（非 `arthas-mcp-` 新建）；ClusterIP Service→patch `type=NodePort` + 加端口（PUT）；幂等（已含同 targetPort→复用既有 nodePort，二次 ensure ports 不变）；无带 label Service→回退新建（`arthas-mcp-` 前缀，003 现状）；pod 缺失→`IllegalStateException`（003 兼容） |
+| `K8sBackendResolverTest`（orchestration） | INV-K8SHOST-2/3/5 懒 resolve 决策（mock `ArthasProvisioner`） | K8S 模式（k8sHost+pod）→ensure 出 mcpUrl；同 logicalName 二次→ensure 仅调一次（`verify(times(1))`，缓存命中）；静态模式（url）→`Optional.empty()` 旁路（`verifyNoInteractions`）；未知 host→`K8sResolveException("unknown_k8s_host")`；ensure 终态 failed→`K8sResolveException("ensure_failed")` |
+| `BackendEntryLazyResolveTest`（backend） | INV-K8SHOST-4/5 懒 resolve hook（mock resolver + mock client） | K8S 模式（client=null）首调 invoke→`resolver.resolveMcpUrl` 被调（懒 resolve 触发，连不可达地址抛 BackendUnreachableException 但 resolver 已调）；K8S 模式无 resolver（`Optional.empty()`）→`BackendUnreachableException("no_k8s_resolver")`；静态模式（预建 client）→resolver 不被调（旁路，用预建 client） |
+| `ArthasLauncherSpiTest`（orchestration） | INV-LAUNCHER-1/4 SPI 委托（spy `ArthasProvisioner`，`doNothing`/`doReturn` 跳过真实 upload + 握手） | ensure 委托 `launcher.locatePid`（返 12345）+ `startArthas`（pid 透传 `verify eq(12345L)`）→status=ready；locatePid 抛 `LaunchException(no_jvm@locate_jvm)`→status=failed + `error.reason=no_jvm, phase=locate_jvm`；startArthas 抛 `LaunchException(attach_failed@start_arthas)`→failed + reason=attach_failed |
+
 ---
 
 ## 第 59 章 服务端契约测试（S-*，网关↔Claude Code）
@@ -220,6 +229,37 @@
 - **启用门禁**：`Assumptions.assumeTrue(isGatewayUp())` —— 外置网关 `:8761` 不可达时跳过（CI 无常驻网关）。
 - **断言**：ensure ready/reused + target 派生 + watch 完成 + 真实诊断含 hotMethod/OrderService。
 
+### 62.5 NodePortExposerContractIT（005，K-ENS-10/11/12，真实 k3s + 真实 demo-business pod，零桩）
+
+- **驱动**：`@SpringBootTest` + 真实 `KubernetesClient`（`kubeconfig=test-env/k8s/kubeconfig/k3s-admin.yaml`）+ 真实 demo-business pod，对真实装配的 `NodePortExposer` 直接发起 `expose`，覆盖单测（`NodePortExposerTest`）无法触及的服务端 nodePort 分配与 type 变更副作用。
+- **启用门禁**：`Assumptions.assumeTrue`（kubeconfig 可读 + pod 存在），CI 无 k3s 跳过。
+- **隔离**：每测试独立 logicalName + 业务 Service（`@AfterEach` 幂等清理创建的 Service，不删测试床 pod）。
+- **断言（4 测试）**：
+  - **K-ENS-10 复用**：预打 label 的 NodePort Service（nodePort=30050）→ `serviceName`=业务 Service 名（非 `arthas-mcp-`）、`nodePort=30050`（复用既有，不新建独立 Service）。
+  - **K-ENS-11 ClusterIP→NodePort**：预打 label 的 ClusterIP Service → patch `type=NodePort` + 加端口，k3s 真实分配 nodePort（`isBetween(30000, 32767)`）+ `spec.type=="NodePort"`。
+  - **K-ENS-12 幂等**：预创建 nodePort=30052，二次 expose → nodePort 不变（=30052）+ `ports.size()==1`（端口数量不重复增长）。
+  - **K-ENS-10 回退**：不预创建带 label Service → 新建 `arthas-mcp-` 前缀 Service + k3s 分配 nodePort（`isBetween(30000, 32767)`）。
+- **真实故障条件**：真实 k3s 控制平面 nodePort 分配（30000-32767 范围，K8S 服务端行为，非桩）+ 真实 PATCH `type` 变更副作用（既有 ClusterIP 端口随之暴露到节点）。
+
+### 62.6 K8sBackendResolverContractIT（005，INV-K8SHOST-2/5，真实 k3s + Spring 装配 + 真实 ensure）
+
+- **驱动**：`@SpringBootTest` + 真实装配的 `BackendResolver`（`K8sOrchestrationConfig` 按 `arthas-gateway.k8s-hosts[0]` 建 provisioner），`@Autowired(required=false)` 注入。
+- **启用门禁**：`assumeTrue`（kubeconfig 可读 + `resolver` bean 非 null，CI 无 k3s/K8S 编排未装配时跳过）。
+- **断言（3 测试）**：
+  - K8S 模式（k8sHost=debian + pod=demo-business）→ 真实 ensure（注入 arthas + NodePort 暴露 + 健康检查握手）出可达 mcpUrl（`http://` 形态）。
+  - 二次 resolve 同 logicalName → mcpUrl 不变（缓存命中，INV-K8SHOST-2，不重复 ensure）。
+  - 静态模式（url 非空）→ `Optional.empty()` 旁路（INV-K8SHOST-5）。
+- **真实条件**：真实 K8S ensure 全流程（非桩 provisioner）；`@AfterAll` 幂等清理动态注册。
+
+### 62.7 CustomLauncherContractIT（005，INV-LAUNCHER-3，真实 Spring 装配 + @Primary 覆盖）
+
+- **驱动**：`@SpringBootTest` + `@Import(TestLauncherConfig)`，`@TestConfiguration` 显式装配 `TestArthasLauncher` 为 `@Primary ArthasLauncher`（<b>不</b>用 `@Component`，避免污染其他 IT 的 Default 装配）。
+- **启用门禁**：`assumeTrue`（kubeconfig 可读 + `launcher` bean 非 null）。@Primary 覆盖是 Spring 装配行为，不依赖集群可达性。
+- **断言（2 测试）**：
+  - **INV-LAUNCHER-3**：注入的 `launcher` 是 `TestArthasLauncher` 实例（`@Primary` 覆盖 `DefaultArthasLauncher`，后者 `@ConditionalOnMissingBean` 让位）。
+  - **INV-LAUNCHER-5**：真实实现非 Mockito mock——探针字段 `lastPid()` 初始=-1L（证明是真实记录被调用的实现）。
+- **真实条件**：Spring `@Primary` 装配优先级（非桩，确定性断言）。
+
 ---
 
 ## 第 63 章 portal 测试（004）
@@ -264,11 +304,13 @@
 
 **文件**：`src/test/java/com/arthas/gateway/architecture/PackageBoundaryTest.java`
 
-3 条否定式规则（静态字节码扫描，CI 可跑、零 K8S 依赖）：
+3 条否定式规则 + 2 条位置锁定规则（静态字节码扫描，CI 可跑、零 K8S 依赖）：
 
 1. **诊断核心 → orchestration**：禁止（gateway-core 零 K8S 编排依赖）。
 2. **诊断核心 → fabric8/kubernetes**：禁止（K8S API 隔离）。
 3. **诊断核心 → admin**：禁止（INV-ISOL-1 管理面隔离）。
+4. **BackendResolver 接口驻 backend 包**（005 INV-BOUNDARY-1）：`classes().haveSimpleName("BackendResolver").should().resideInAPackage("...backend")`——接口倒置，gateway-core 定义零 fabric8 依赖接口，实现在 orchestration。
+5. **K8sBackendResolver 实现驻 orchestration 包**（005 INV-BOUNDARY-2）：`classes().haveSimpleName("K8sBackendResolver").should().resideInAPackage("...orchestration")`——K8S 懒 resolve 实现（持 fabric8/ArthasProvisioner 编排依赖）不漂入 gateway-core 破零 K8S 依赖。
 
 诊断核心白名单：`backend.. / handler.. / tool.. / task.. / auth.. / obs..`。`config`（组合根）+ `orchestration` + `admin` 不受此限。
 
@@ -298,6 +340,9 @@
 | portal 导出 | TaskExportServiceTest | — | TaskExportContractIT | — |
 | portal 列表 | TaskListServiceTest | — | TaskListContractIT | — |
 | 能力开关 | AdminCapabilitySwitchTest | — | AdminCapabilitySwitchIT/AdminExportSwitchIT | — |
+| Service 复用（K-ENS-10/11/12） | NodePortExposerTest | NodePortExposerContractIT | — | — |
+| K8S 懒 resolve（INV-K8SHOST-2~5） | K8sBackendResolverTest / BackendEntryLazyResolveTest | K8sBackendResolverContractIT | — | PackageBoundaryTest（INV-BOUNDARY-1/2） |
+| ArthasLauncher SPI（INV-LAUNCHER-1/3/4） | ArthasLauncherSpiTest | CustomLauncherContractIT | — | — |
 
 ---
 
@@ -314,6 +359,7 @@
 | `FakeBackendClient` | 测试用 client | 同上 |
 | `SmokeDemoLauncher` | 双后端一键拉起（冒烟） | 手动 `javac` → `target/smoke-classes` |
 | `SmokeMcpClient`/`SmokeWatchAsync` | 冒烟 client | 同上 |
+| `TestArthasLauncher`（005） | ArthasLauncher SPI 测试 fixture（真实实现非 mock，探针字段：`locateCalls`/`lastContext`/`lastPid`/`failOnStart`） | `mvn test-compile` → `target/test-classes` |
 
 K8S 场景：3 业务类（DemoBusinessApp/OrderService/OrderResult）ship 到 debian → docker 镜像 → k3s → demo-business pod。
 

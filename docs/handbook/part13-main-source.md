@@ -1354,18 +1354,24 @@ import java.net.URISyntaxException;
 import java.util.Objects;
 
 /**
- * 单后端配置声明（data-model.md §2）。源自 {@code config/backends.yaml}，不可变值对象。
+ * 单后端配置声明（data-model.md §2，005 US2 增量 K8S 模式）。源自 {@code config/backends.yaml}，不可变值对象。
  *
- * <p>紧凑构造器做<b>单实例不变量校验</b>：name 非空、url 为合法 http(s) URL（含 host）、
- * protocol/auth 非空、超时为正、{@code maxConcurrentTasks} ∈ [1,5]（后端硬上限）。
- * 跨实例校验（name 唯一）由 {@link BackendConfigLoader} 负责。
- * 任意失败抛 {@link BackendConfigException}，以便热重载保留旧表（data-model.md §11 规则 7）。
+ * <p><b>两种寻址模式</b>（005 US2，INV-K8SHOST-1 互斥）：
+ * <ul>
+ *   <li><b>静态模式</b>（003/004 既有）：{@code url} 非空——直连业务 arthas MCP 地址。</li>
+ *   <li><b>K8S 模式</b>（005 新增）：{@code k8sHost} 非空 + {@code pod}——声明远端 K8S 集群入口 + 业务 pod，
+ *       首次路由懒 resolve（{@link BackendResolver} ensure + 缓存）出 mcpUrl。</li>
+ * </ul>
+ * {@code url} 与 {@code k8sHost} <b>互斥</b>（不可同时配置 / 不可皆空）；K8S 模式 {@code pod} 必填。
  *
- * <p><b>{@code source} 来源标记</b>（003 动态纳管增量，data-model §2/§3）：
- * 最后一个组件，缺省 {@link Source#STATIC}。{@link #source()} 参与 {@code list-targets} 可观测
- * （区分静态种子 / 动态注册），但<b>不</b>参与 {@link #equals(Object)}/{@link #hashCode()} 的
- * 复用判定核心（data-model §2：同 name/url/auth/超时/并发、异 source 仍视为同一配置，
- * 以保连接池复用语义稳定）。{@code equals}/{@code hashCode} 显式覆写为排除 source 的 7 字段实现。
+ * <p>紧凑构造器做<b>单实例不变量校验</b>：name 非空、url（静态模式）为合法 http(s) URL（含 host）、
+ * k8sHost/pod（K8S 模式）互斥与必填、protocol/auth 非空、超时为正、{@code maxConcurrentTasks} ∈ [1,5]。
+ * 跨实例校验（name 唯一）由 {@link BackendConfigLoader} 负责。任意失败抛 {@link BackendConfigException}，
+ * 以便热重载保留旧表（data-model.md §11 规则 7）。
+ *
+ * <p><b>{@code source} 来源标记</b>（003 动态纳管增量）：最后一个组件，缺省 {@link Source#STATIC}。
+ * {@code equals}/{@code hashCode} 排除 {@code source}（同核心字段异 source 仍视为同一可复用后端，保连接池复用语义），
+ * <b>纳入</b> {@code k8sHost}/{@code pod}（K8S 模式寻址变化=不同后端）。
  */
 public record BackendConfig(
         String name,
@@ -1375,6 +1381,8 @@ public record BackendConfig(
         int connectTimeoutMs,
         int callTimeoutMs,
         int maxConcurrentTasks,
+        String k8sHost,
+        String pod,
         Source source) {
 
     public BackendConfig {
@@ -1383,7 +1391,7 @@ public record BackendConfig(
         }
         Objects.requireNonNull(protocol, "protocol 不可为空");
         Objects.requireNonNull(auth, "auth 不可为空");
-        requireHttpUrl(name, url);
+        validateModeRouting(name, url, k8sHost, pod); // url/k8sHost 互斥 + K8S 模式 pod 必填（INV-K8SHOST-1）
         if (connectTimeoutMs <= 0) {
             throw new BackendConfigException(name + ": connectTimeoutMs 须为正数，实得 " + connectTimeoutMs);
         }
@@ -1394,28 +1402,71 @@ public record BackendConfig(
             throw new BackendConfigException(
                     name + ": maxConcurrentTasks 须 ∈ [1,5]（后端硬上限），实得 " + maxConcurrentTasks);
         }
-        // source 缺省 STATIC（向后兼容：YAML 不写 source 视为 STATIC；既有 7 参调用点零改动）。
+        // source 缺省 STATIC（向后兼容：YAML 不写 source 视为 STATIC；既有 7/8 参调用点零改动）。
         if (source == null) {
             source = Source.STATIC;
         }
     }
 
     /**
-     * 向后兼容构造器（不含 source）—— {@code source} 缺省 {@link Source#STATIC}。
-     *
-     * <p>保留 001 既有 7 参调用点（{@code BackendConfigLoader} 及各测试）零改动通过。
+     * 寻址模式校验（005 US2，INV-K8SHOST-1）：url 与 k8sHost 互斥；静态模式校验 url 合法；
+     * K8S 模式 pod 必填。
      */
-    public BackendConfig(String name, String url, Protocol protocol, Auth auth,
-                         int connectTimeoutMs, int callTimeoutMs, int maxConcurrentTasks) {
-        this(name, url, protocol, auth, connectTimeoutMs, callTimeoutMs, maxConcurrentTasks, Source.STATIC);
+    private static void validateModeRouting(String name, String url, String k8sHost, String pod) {
+        boolean hasUrl = url != null && !url.isBlank();
+        boolean hasK8s = k8sHost != null && !k8sHost.isBlank();
+        if (hasUrl && hasK8s) {
+            throw new BackendConfigException(name + ": url 与 k8sHost 互斥（不可同时配置）");
+        }
+        if (!hasUrl && !hasK8s) {
+            throw new BackendConfigException(name + ": url 与 k8sHost 须二选一（静态模式配 url / K8S 模式配 k8sHost+pod）");
+        }
+        if (hasUrl) {
+            requireHttpUrl(name, url); // 静态模式：url 须为合法 http(s)
+        } else if (pod == null || pod.isBlank()) {
+            throw new BackendConfigException(name + ": K8S 模式（k8sHost 非空）须配 pod");
+        }
+    }
+
+    /** K8S 模式判定（k8sHost 非空）。 */
+    public boolean isK8sMode() {
+        return k8sHost != null && !k8sHost.isBlank();
     }
 
     /**
-     * 复用判定 equals（data-model §2：排除 {@code source}）。
+     * 005 US2 懒 resolve 后构造静态等价 config：用解析出的 mcpUrl 替换（K8S 模式 → 静态 url），
+     * 供 {@code HttpBackendClient} 按 mcpUrl 建连。k8sHost/pod 清空（已 resolve，不再需要）。
+     */
+    public BackendConfig withResolvedUrl(String mcpUrl) {
+        return new BackendConfig(name, mcpUrl, protocol, auth,
+                connectTimeoutMs, callTimeoutMs, maxConcurrentTasks, null, null, source);
+    }
+
+    /**
+     * 向后兼容构造器（不含 source / k8sHost / pod）—— 静态 url 模式，{@code source} 缺省 {@link Source#STATIC}。
      *
-     * <p>仅比较 7 个复用核心字段（name/url/protocol/auth/超时/并发）。{@code source} 为可观测标记，
-     * 不影响"是否同一可复用后端"——故同核心字段、异 source 仍 equal（保连接池复用语义）。
-     * 与 {@link #hashCode()} 协同（同字段集）。
+     * <p>保留 001 既有 7 参调用点（各测试）零改动通过。
+     */
+    public BackendConfig(String name, String url, Protocol protocol, Auth auth,
+                         int connectTimeoutMs, int callTimeoutMs, int maxConcurrentTasks) {
+        this(name, url, protocol, auth, connectTimeoutMs, callTimeoutMs, maxConcurrentTasks, null, null, Source.STATIC);
+    }
+
+    /**
+     * 向后兼容构造器（不含 k8sHost / pod，含 source）—— 静态 url 模式。
+     *
+     * <p>保留 003 既有 8 参调用点（{@code BackendConfigLoader} 旧路径 + {@code ArthasProvisioner} 动态注册）零改动通过。
+     */
+    public BackendConfig(String name, String url, Protocol protocol, Auth auth,
+                         int connectTimeoutMs, int callTimeoutMs, int maxConcurrentTasks, Source source) {
+        this(name, url, protocol, auth, connectTimeoutMs, callTimeoutMs, maxConcurrentTasks, null, null, source);
+    }
+
+    /**
+     * 复用判定 equals（data-model §2：排除 {@code source}，纳入 {@code k8sHost}/{@code pod}）。
+     *
+     * <p>比较 9 个复用核心字段（name/url/protocol/auth/超时/并发/k8sHost/pod）。{@code source} 为可观测标记，
+     * 不影响「是否同一可复用后端」。k8sHost/pod 纳入——寻址模式变化=不同后端。
      */
     @Override
     public boolean equals(Object o) {
@@ -1431,15 +1482,15 @@ public record BackendConfig(
                 && Objects.equals(name, that.name)
                 && Objects.equals(url, that.url)
                 && protocol == that.protocol
-                && Objects.equals(auth, that.auth);
+                && Objects.equals(auth, that.auth)
+                && Objects.equals(k8sHost, that.k8sHost)
+                && Objects.equals(pod, that.pod);
     }
 
-    /**
-     * 复用判定 hashCode（与 {@link #equals(Object)} 协同，排除 {@code source}）。
-     */
+    /** 复用判定 hashCode（与 {@link #equals(Object)} 协同，排除 {@code source}，纳入 k8sHost/pod）。 */
     @Override
     public int hashCode() {
-        return Objects.hash(name, url, protocol, auth, connectTimeoutMs, callTimeoutMs, maxConcurrentTasks);
+        return Objects.hash(name, url, protocol, auth, connectTimeoutMs, callTimeoutMs, maxConcurrentTasks, k8sHost, pod);
     }
 
     /** 校验 url 为合法 http(s) 且含 host（data-model.md §2：形如 {@code http://host:8563/mcp}）。 */
@@ -1513,6 +1564,7 @@ public record BackendConfig(
         }
     }
 }
+
 ```
 
 
@@ -2080,7 +2132,9 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Semaphore;
+import java.util.function.Supplier;
 
 /**
  * 单后端运行对象（data-model.md §3）+ <b>统一拦截层</b>（002 整改 · data-model.md §2）。
@@ -2120,18 +2174,37 @@ import java.util.concurrent.Semaphore;
 public final class BackendEntry {
 
     private final BackendConfig config;
-    private final BackendClient client;
+    private final Supplier<Optional<BackendResolver>> resolverSupplier;
     private final CircuitBreaker breaker;
     private final Semaphore taskSlots;
     private final Object initLock = new Object();
     private volatile BackendState state = BackendState.ACTIVE;
     private volatile boolean initialized = false;
+    /**
+     * MCP 客户端：静态模式构造时预建（config.url）；K8S 模式（005 US2）传 null，首次 initializeOnce 时
+     * 懒 resolve 出 mcpUrl 再建（{@link #resolveClientIfNeeded}）。
+     */
+    private volatile BackendClient client;
 
-    public BackendEntry(BackendConfig config, BackendClient client, CircuitBreaker breaker) {
+    /** 005 US2 懒 resolve 主构造：注入 {@link Supplier}（运行时 initializeOnce 才解析，避免启动期装配环）。 */
+    public BackendEntry(BackendConfig config, BackendClient client, CircuitBreaker breaker,
+                        Supplier<Optional<BackendResolver>> resolverSupplier) {
         this.config = Objects.requireNonNull(config, "config 不可为空");
-        this.client = Objects.requireNonNull(client, "client 不可为空");
+        this.client = client; // 静态模式预建；K8S 模式传 null（懒建）
         this.breaker = Objects.requireNonNull(breaker, "breaker 不可为空");
+        this.resolverSupplier = Objects.requireNonNull(resolverSupplier, "resolverSupplier 不可为空");
         this.taskSlots = new Semaphore(config.maxConcurrentTasks());
+    }
+
+    /** Optional 兼容构造（固定 resolver，测试用）。 */
+    public BackendEntry(BackendConfig config, BackendClient client, CircuitBreaker breaker,
+                        Optional<BackendResolver> resolver) {
+        this(config, client, breaker, () -> Objects.requireNonNull(resolver));
+    }
+
+    /** 向后兼容构造（静态模式，resolver=empty，003/004 既有调用点零改动）。 */
+    public BackendEntry(BackendConfig config, BackendClient client, CircuitBreaker breaker) {
+        this(config, client, breaker, Optional.empty());
     }
 
     public BackendConfig config() {
@@ -2253,10 +2326,32 @@ public final class BackendEntry {
         }
         synchronized (initLock) {
             if (!initialized) {
-                client.initialize();
+                BackendClient c = resolveClientIfNeeded();
+                c.initialize();
+                this.client = c;
                 initialized = true;
             }
         }
+    }
+
+    /**
+     * 005 US2 懒 resolve：K8S 模式（client 为 null）时调 {@link BackendResolver} resolve 出 mcpUrl，
+     * 用 {@code config.withResolvedUrl(mcpUrl)} 建 {@link HttpBackendClient}（覆盖 config.url）。
+     * 静态模式（client 预建）直接复用。K8S 模式但无 resolver → no_k8s_resolver（INV-K8SHOST-4）。
+     */
+    private BackendClient resolveClientIfNeeded() {
+        if (this.client != null) {
+            return this.client; // 静态模式预建
+        }
+        Optional<BackendResolver> r = resolverSupplier.get();
+        if (r.isEmpty()) {
+            throw new BackendUnreachableException(new IllegalStateException(
+                    "no_k8s_resolver: K8S 模式 backend " + config.name() + " 无 BackendResolver（未配 arthas-gateway.k8s-hosts）"));
+        }
+        String mcpUrl = r.get().resolveMcpUrl(config)
+                .orElseThrow(() -> new BackendUnreachableException(new IllegalStateException(
+                        "no_k8s_resolver: K8S 模式 backend " + config.name() + " resolve 返 empty")));
+        return new HttpBackendClient(config.withResolvedUrl(mcpUrl));
     }
 
     /** 健康单一事实源（US5/FR-012）：{@code ACTIVE} 且熔断非 OPEN。list-targets/HealthIndicator/守卫共用。 */
@@ -2283,6 +2378,7 @@ public final class BackendEntry {
         return taskSlots.availablePermits();
     }
 }
+
 ```
 
 
@@ -2295,9 +2391,13 @@ public final class BackendEntry {
 ```java
 package com.arthas.gateway.backend;
 
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /**
  * 后端运行对象工厂（T027 装配）：{@link BackendConfig} → {@link BackendEntry}。
@@ -2306,10 +2406,16 @@ import java.util.function.LongSupplier;
  * <ul>
  *   <li>{@link HttpBackendClient}——真实 MCP 客户端（T024，独立连接池 + 会话 + 认证头）；构造不连，
  *       首次 {@code initialize()}（路由转发时）才建立后端会话。</li>
- *   <li>{@link CircuitBreaker}——熔断器（T045），注入纳秒时钟；Phase 3 初始 CLOSED，Phase 5 T048 接入
- *       {@code allowRequest}/{@code recordSuccess}/{@code recordFailure} 守卫。</li>
+ *   <li>{@link CircuitBreaker}——熔断器（T045），注入纳秒时钟。</li>
  *   <li>{@link BackendEntry}——含 {@code taskSlots}（Semaphore(maxConcurrentTasks)，T047 per-target 限流）。</li>
  * </ul>
+ *
+ * <p><b>005 US2 懒 resolve</b>：静态模式（config.url）构造时预建 {@link HttpBackendClient}；K8S 模式
+ * （config.k8sHost）传 {@code null}，由 {@link BackendEntry} 首次 initialize 时经 {@link BackendResolver}
+ * 懒 resolve 出 mcpUrl 再建。用 {@link ObjectProvider}（<b>非</b>构造期 {@code Optional}）注入 resolver——
+ * 因 {@code BackendResolver → ArthasProvisioner → DynamicBackendStore → BackendConfigWatcher → 本工厂}
+ * 形成循环，构造期注入会 {@code BeanCurrentlyInCreationException}；{@code ObjectProvider} 推迟到 {@code create}
+ * 时解析，打破构造期环。
  *
  * <p>时钟可注入（测试用固定时钟驱动熔断退避）；默认 {@link System#nanoTime}（单调纳秒）。
  */
@@ -2317,24 +2423,46 @@ import java.util.function.LongSupplier;
 public class BackendEntryFactory {
 
     private final LongSupplier clock;
+    private final ObjectProvider<BackendResolver> resolverProvider;
 
-    /** 默认系统纳秒时钟。 */
+    /** 测试默认构造（无 resolver，静态模式）。 */
     public BackendEntryFactory() {
         this(System::nanoTime);
     }
 
-    /** 注入时钟（测试驱动熔断退避时间）。 */
+    /** 注入时钟（测试驱动熔断退避时间），resolver 默认 empty。 */
     public BackendEntryFactory(LongSupplier clock) {
-        this.clock = clock;
+        this(clock, null);
     }
 
-    /** 由后端配置构造运行对象（client 不连、breaker=CLOSED、slots=Semaphore(maxConcurrentTasks)）。 */
+    /** 005 US2：Spring 注入 {@link ObjectProvider}（懒解析，避免构造期循环依赖）。 */
+    @Autowired
+    public BackendEntryFactory(ObjectProvider<BackendResolver> resolverProvider) {
+        this(System::nanoTime, resolverProvider);
+    }
+
+    /** 全参数构造（测试/装配）。 */
+    public BackendEntryFactory(LongSupplier clock, ObjectProvider<BackendResolver> resolverProvider) {
+        this.clock = clock;
+        this.resolverProvider = resolverProvider;
+    }
+
+    /**
+     * 由后端配置构造运行对象：静态模式预建 client（config.url）；K8S 模式 client=null（懒 resolve，INV-K8SHOST-4）。
+     * breaker=CLOSED、slots=Semaphore(maxConcurrentTasks)。resolver 经 {@link ObjectProvider} 懒取（无 K8S 配置时 empty）。
+     */
     public BackendEntry create(BackendConfig config) {
-        BackendClient client = new HttpBackendClient(config);
+        BackendClient client = config.isK8sMode() ? null : new HttpBackendClient(config);
         CircuitBreaker breaker = CircuitBreaker.create(clock);
-        return new BackendEntry(config, client, breaker);
+        // Supplier 懒解析：create() 不触发 backendResolver（避免启动期 registryHolder↔dynamicBackendStore 装配环）；
+        // 运行时 initializeOnce 才解析（此时 context 已就绪）
+        Supplier<Optional<BackendResolver>> supplier = () -> resolverProvider != null
+                ? Optional.ofNullable(resolverProvider.getIfAvailable())
+                : Optional.empty();
+        return new BackendEntry(config, client, breaker, supplier);
     }
 }
+
 ```
 
 
@@ -3259,6 +3387,37 @@ public final class StatelessAsyncException extends RuntimeException {
 
 ---
 
+## com/arthas/gateway/backend/BackendResolver.java
+
+**文件**：`src/main/java/com/arthas/gateway/backend/BackendResolver.java`
+
+```java
+package com.arthas.gateway.backend;
+
+import java.util.Optional;
+
+/**
+ * 后端懒 resolve 接口（005 特性，US2，research.md R6）。
+ *
+ * <p>gateway-core 定义（<b>零 fabric8 依赖</b>，ArchUnit 守护 INV-BOUNDARY-1）；实现在 orchestration 包
+ * （{@code K8sBackendResolver}）。{@link BackendEntry} 首次握手时调用：K8S 模式 config（{@code k8sHost}
+ * 非空）→ 懒 resolve 出 mcpUrl（调 ensure + 缓存）；静态模式（{@code url} 非空）→ empty（用 config.url）。
+ *
+ * <p>装配为 {@code Optional<BackendResolver>}（无 K8S 时不装配；K8S 模式 backend 路由时报 {@code no_k8s_resolver}，
+ * INV-K8SHOST-4）。
+ *
+ * @param config 后端配置（K8S 模式：k8sHost 非空 + pod；静态模式：url 非空）
+ * @return mcpUrl（K8S 模式，懒 resolve）；empty（静态模式，旁路）
+ */
+public interface BackendResolver {
+    Optional<String> resolveMcpUrl(BackendConfig config);
+}
+
+```
+
+
+---
+
 ## com/arthas/gateway/config/BackendConfigWatcherConfig.java
 
 **文件**：`src/main/java/com/arthas/gateway/config/BackendConfigWatcherConfig.java`
@@ -3628,6 +3787,8 @@ package com.arthas.gateway.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 网关顶层配置（前缀 {@code arthas-gateway.*}）。绑定后端映射表文件路径与异步任务默认值。
@@ -3659,6 +3820,14 @@ public class GatewayProperties {
     /** portal 管理面能力开关子段（004 特性，{@code arthas-gateway.admin.*}）。 */
     private Admin admin = new Admin();
 
+    /**
+     * K8S Host 列表（005 特性，{@code arthas-gateway.k8s-hosts}）：远端 Linux K8S 集群入口声明。
+     *
+     * <p>每个 host 含独立 kubeconfig + namespace；BackendConfig 的 K8S 模式（{@code k8sHost}）引用此 name。
+     * 配置位置 = application.yml（重启生效，热重载后置，research.md R4）。MVP 按 host 建独立 provisioner（R5）。
+     */
+    private List<K8sHost> k8sHosts = new ArrayList<>();
+
     public String getBackendsFile() {
         return backendsFile;
     }
@@ -3689,6 +3858,14 @@ public class GatewayProperties {
 
     public void setAdmin(Admin admin) {
         this.admin = admin;
+    }
+
+    public List<K8sHost> getK8sHosts() {
+        return k8sHosts;
+    }
+
+    public void setK8sHosts(List<K8sHost> k8sHosts) {
+        this.k8sHosts = k8sHosts;
     }
 
     /** 异步任务默认值（方案 C，详见 research.md §4）。 */
@@ -3856,6 +4033,46 @@ public class GatewayProperties {
     }
 
     /**
+     * K8S Host（005 特性）：一台被管理的远端 Linux K8S 集群入口。
+     *
+     * <p>BackendConfig 的 K8S 模式（{@code k8sHost}）引用此 {@code name}；{@link K8sBackendResolver} 据 host
+     * 的 kubeconfig 构建独立 KubernetesClient + ArthasProvisioner（research.md R5）。实体见
+     * [data-model.md §2](../../specs/005-k8s-orchestration-iteration/data-model.md)。
+     */
+    public static class K8sHost {
+        /** host 逻辑名（跨 host 唯一，BackendConfig.k8sHost 引用此名）。 */
+        private String name;
+        /** kubeconfig 文件路径（独立集群凭证；启动期校验可读）。 */
+        private String kubeconfig;
+        /** 默认 namespace（缺省 {@code default}）。 */
+        private String namespace = "default";
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getKubeconfig() {
+            return kubeconfig;
+        }
+
+        public void setKubeconfig(String kubeconfig) {
+            this.kubeconfig = kubeconfig;
+        }
+
+        public String getNamespace() {
+            return namespace;
+        }
+
+        public void setNamespace(String namespace) {
+            this.namespace = namespace;
+        }
+    }
+
+    /**
      * portal 管理面能力开关子段（004 特性，{@code arthas-gateway.admin.*}）。
      *
      * <p>承载后端 CRUD 与任务导出能力的按需启用开关（research.md R9 / spec FR-014）。
@@ -3912,6 +4129,7 @@ public class GatewayProperties {
         }
     }
 }
+
 ```
 
 
@@ -3924,8 +4142,12 @@ public class GatewayProperties {
 ```java
 package com.arthas.gateway.config;
 
+import com.arthas.gateway.backend.BackendResolver;
 import com.arthas.gateway.backend.DynamicBackendStore;
+import com.arthas.gateway.orchestration.ArthasLauncher;
 import com.arthas.gateway.orchestration.ArthasProvisioner;
+import com.arthas.gateway.orchestration.DefaultArthasLauncher;
+import com.arthas.gateway.orchestration.K8sBackendResolver;
 import com.arthas.gateway.orchestration.K8sClientFactory;
 import com.arthas.gateway.orchestration.K8sEnabledCondition;
 import com.arthas.gateway.orchestration.K8sPodExplorer;
@@ -3933,9 +4155,20 @@ import com.arthas.gateway.orchestration.K8sToolHandlers;
 import com.arthas.gateway.orchestration.NodePortExposer;
 import com.arthas.gateway.orchestration.OrchestrationRecordStore;
 import io.fabric8.kubernetes.client.KubernetesClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * K8S 编排 bean 装配（003 特性，research.md R6）。
@@ -3954,6 +4187,8 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @Conditional(K8sEnabledCondition.class)
 public class K8sOrchestrationConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(K8sOrchestrationConfig.class);
 
     /** kubeconfig → fabric8 client 工厂（{@link AutoCloseable}：容器关闭释放连接池）。 */
     @Bean(destroyMethod = "close")
@@ -3985,15 +4220,54 @@ public class K8sOrchestrationConfig {
         return new OrchestrationRecordStore();
     }
 
-    /** arthas 供给器（ensure 核心）。供给参数取自 {@link GatewayProperties.K8s}。 */
+    /** 005 US3：默认 arthas 启动器（003 现状：PATH 的 jps + java -jar）。用户 {@code @Primary ArthasLauncher} 覆盖（INV-LAUNCHER-3）。 */
+    @Bean
+    @ConditionalOnMissingBean(ArthasLauncher.class)
+    DefaultArthasLauncher defaultArthasLauncher() {
+        return new DefaultArthasLauncher();
+    }
+
+    /** arthas 供给器（ensure 核心，005 US3 委托 {@link ArthasLauncher}）。 */
     @Bean
     ArthasProvisioner arthasProvisioner(KubernetesClient client, NodePortExposer exposer,
                                         DynamicBackendStore dynamicStore, OrchestrationRecordStore recordStore,
-                                        GatewayProperties props) {
+                                        GatewayProperties props, ArthasLauncher launcher) {
         GatewayProperties.K8s k = props.getK8s();
         return new ArthasProvisioner(client, exposer, dynamicStore, recordStore,
                 k.getTargetIp(), k.getArthasBootJar(), k.getMcpPort(), k.getArthasVersion(),
-                k.getArthasPassword());
+                k.getArthasPassword(), Duration.ofSeconds(90), launcher);
+    }
+
+    /**
+     * 005 US2 K8S 模式后端懒 resolve（{@link BackendResolver}）：按 {@code arthas-gateway.k8s-hosts} 列表为每个
+     * host 建独立 {@link KubernetesClient} + {@link NodePortExposer} + {@link ArthasProvisioner}，组成 host→provisioner 映射。
+     * K8S 模式 backend（{@code k8sHost}+{@code pod}）首次路由时经此 resolve（ensure + 缓存 mcpUrl）。
+     *
+     * <p>k8s-hosts 为空（003 单集群场景，仅 ensure 工具）→ resolver 装配但映射空（无 K8S 模式 backend 即不触发）。
+     * clients 由本 bean 拥有（{@code destroyMethod="close"} 释放）。
+     */
+    @Bean(destroyMethod = "close")
+    @Lazy // 懒创建：避免启动期 registryHolder↔dynamicBackendStore↔backendConfigWatcher 环（首次 create() 经 ObjectProvider 创建，此时启动已完成）
+    BackendResolver backendResolver(GatewayProperties props, DynamicBackendStore dynamicStore,
+                                    OrchestrationRecordStore recordStore, ArthasLauncher launcher) {
+        GatewayProperties.K8s k = props.getK8s();
+        Map<String, ArthasProvisioner> provisioners = new LinkedHashMap<>();
+        Map<String, GatewayProperties.K8sHost> hosts = new LinkedHashMap<>();
+        List<KubernetesClient> clients = new ArrayList<>();
+        for (GatewayProperties.K8sHost h : props.getK8sHosts()) {
+            KubernetesClient c = K8sClientFactory.buildFromKubeconfig(h.getKubeconfig());
+            clients.add(c);
+            NodePortExposer exposer = new NodePortExposer(c);
+            ArthasProvisioner p = new ArthasProvisioner(c, exposer, dynamicStore, recordStore,
+                    k.getTargetIp(), k.getArthasBootJar(), k.getMcpPort(), k.getArthasVersion(),
+                    k.getArthasPassword(), Duration.ofSeconds(90), launcher);
+            provisioners.put(h.getName(), p);
+            hosts.put(h.getName(), h);
+        }
+        K8sBackendResolver resolver = new K8sBackendResolver(provisioners, hosts, Clock.systemUTC());
+        resolver.setOwnedClients(clients);
+        log.info("K8sBackendResolver 装配：{} host(s) → {}", provisioners.size(), provisioners.keySet());
+        return resolver;
     }
 
     /** 3 个编排工具的本地处理器（handler 自带闭包，不经 ToolsCallRouter）。 */
@@ -4002,6 +4276,7 @@ public class K8sOrchestrationConfig {
         return new K8sToolHandlers(explorer, provisioner, props);
     }
 }
+
 ```
 
 
@@ -4923,6 +5198,8 @@ public class ArthasProvisioner {
     private final KubernetesClient client;
     private final K8sExec exec;
     private final NodePortExposer exposer;
+    /** 005 US3：arthas 启动委托（locatePid + startArthas）；用户 @Primary 实现覆盖 DefaultArthasLauncher（INV-LAUNCHER-3）。 */
+    private final ArthasLauncher launcher;
     private final DynamicBackendStore dynamicStore;
     private final OrchestrationRecordStore recordStore;
     private final String targetIp;
@@ -4936,25 +5213,35 @@ public class ArthasProvisioner {
     /** 健康检查轮询总超时（生产用默认 90s；K-ENS-7 loopback 故障用例注入短超时快速失败）。 */
     private final Duration healthCheckTimeout;
 
-    /** 生产装配（参数来自 {@link com.arthas.gateway.config.GatewayProperties.K8s}）。 */
+    /** 生产装配（参数来自 {@link com.arthas.gateway.config.GatewayProperties.K8s}），launcher 用 {@link DefaultArthasLauncher}。 */
     public ArthasProvisioner(KubernetesClient client, NodePortExposer exposer,
                              DynamicBackendStore dynamicStore, OrchestrationRecordStore recordStore,
                              String targetIp, String arthasBootJar, int mcpPort, String arthasVersion,
                              String arthasPassword) {
         this(client, exposer, dynamicStore, recordStore, targetIp, arthasBootJar, mcpPort,
-                arthasVersion, arthasPassword, DEFAULT_HEALTH_CHECK_TIMEOUT);
+                arthasVersion, arthasPassword, DEFAULT_HEALTH_CHECK_TIMEOUT, new DefaultArthasLauncher());
     }
 
     /**
-     * 测试构造器：可注入健康检查轮询总超时。
+     * 测试构造器：可注入健康检查轮询总超时（launcher 默认 {@link DefaultArthasLauncher}）。
      *
-     * <p>K-ENS-7（arthas 绑 loopback → NodePort 不可达 → 健康检查超时）需<b>短</b>超时快速失败，
-     * 避免 90s 默认值拖慢故障用例。生产装配走 9 参构造器（默认 90s）。
+     * <p>K-ENS-7（arthas 绑 loopback → NodePort 不可达 → 健康检查超时）需<b>短</b>超时快速失败。
      */
     ArthasProvisioner(KubernetesClient client, NodePortExposer exposer,
                       DynamicBackendStore dynamicStore, OrchestrationRecordStore recordStore,
                       String targetIp, String arthasBootJar, int mcpPort, String arthasVersion,
                       String arthasPassword, Duration healthCheckTimeout) {
+        this(client, exposer, dynamicStore, recordStore, targetIp, arthasBootJar, mcpPort,
+                arthasVersion, arthasPassword, healthCheckTimeout, new DefaultArthasLauncher());
+    }
+
+    /**
+     * 005 US3：注入 {@link ArthasLauncher}（locatePid + startArthas 委托；用户 @Primary 实现覆盖 Default）。
+     */
+    public ArthasProvisioner(KubernetesClient client, NodePortExposer exposer,
+                             DynamicBackendStore dynamicStore, OrchestrationRecordStore recordStore,
+                             String targetIp, String arthasBootJar, int mcpPort, String arthasVersion,
+                             String arthasPassword, Duration healthCheckTimeout, ArthasLauncher launcher) {
         this.client = Objects.requireNonNull(client, "client 不可为空");
         this.exec = new K8sExec(client);
         this.exposer = Objects.requireNonNull(exposer, "exposer 不可为空");
@@ -4966,12 +5253,20 @@ public class ArthasProvisioner {
         this.arthasPassword = Objects.requireNonNull(arthasPassword, "arthasPassword 不可为空");
         this.auth = new BackendConfig.Auth(AuthMode.BEARER, arthasPassword, null, null);
         this.healthCheckTimeout = Objects.requireNonNull(healthCheckTimeout, "healthCheckTimeout 不可为空");
+        this.launcher = Objects.requireNonNull(launcher, "launcher 不可为空");
         Path jar = Path.of(Objects.requireNonNull(arthasBootJar, "arthasBootJar 不可为空"));
         if (!Files.isReadable(jar)) {
             throw new IllegalStateException("arthas-boot.jar 不可读：" + jar.toAbsolutePath()
                     + "（应作为静态工具文件置于工程 tools/，见 memory arthas-no-dependency）");
         }
         this.arthasBootJar = jar;
+    }
+
+    /** 005 US3：构造 LaunchContext（namespace/pod + exec + arthas 启动参数 + 远程 jar path），传 ArthasLauncher。 */
+    private ArthasLauncher.LaunchContext buildContext(String namespace, String pod) {
+        return new ArthasLauncher.LaunchContext(namespace, pod, exec, mcpPort, targetIp,
+                arthasVersion, arthasPassword, REMOTE_ARTHAS_JAR,
+                ATTACH_TIMEOUT, LOCATE_TIMEOUT);
     }
 
     /** 确定性派生逻辑名（target 名）= {@code {server}-{pod}}（K-ENS-8）。 */
@@ -5079,30 +5374,19 @@ public class ArthasProvisioner {
 
     // ===== 子步：定位 JVM =====
 
-    /** exec 定位运行中的 JVM PID；无 shell/403/不可达→分类，无 PID→no_jvm。 */
+    /** 005 US3：委托 {@link ArthasLauncher#locatePid}（定位 JVM PID；003 既有 jps 逻辑外移至 DefaultArthasLauncher）。 */
     private long locateJvm(String namespace, String pod) {
-        K8sExec.ExecResult r;
         try {
-            r = exec.exec(namespace, pod, LOCATE_TIMEOUT, "sh", "-c",
-                    "jps -q 2>/dev/null | grep -E '^[0-9]+$' | head -1");
-        } catch (K8sExecException e) {
-            throw new ProvisionException(classifyExecError(e, "locate_jvm"));
+            return launcher.locatePid(buildContext(namespace, pod));
+        } catch (ArthasLauncher.LaunchException e) {
+            throw new ProvisionException(e.error());
         }
-        if (r.exitCode() != 0) {
-            // exec 非零退出：负值=通道故障（无 shell 等），正值=命令失败 → 按 shell/可达性分类
-            throw new ProvisionException(classifyExecResult(r, "locate_jvm"));
-        }
-        String pidStr = r.stdout().trim();
-        if (!PID_LINE.matcher(pidStr).matches()) {
-            throw new ProvisionException(errorOf("no_jvm", "locate_jvm",
-                    "pod 内无可被 arthas attach 的运行中 JVM（" + namespace + "/" + pod + "）"));
-        }
-        return Long.parseLong(pidStr.trim());
     }
 
     // ===== 子步：上传 arthas-boot.jar =====
 
-    private void installArthas(String namespace, String pod) {
+    /** package-private 供 spy 测试覆盖（T023 跳过真实 upload，聚焦 launcher 委托）。 */
+    void installArthas(String namespace, String pod) {
         try {
             boolean ok = client.pods().inNamespace(namespace).withName(pod)
                     .file(REMOTE_ARTHAS_JAR).upload(arthasBootJar);
@@ -5125,24 +5409,12 @@ public class ArthasProvisioner {
 
     // ===== 子步：启动 arthas =====
 
+    /** 005 US3：委托 {@link ArthasLauncher#startArthas}（启动 arthas attach；003 既有 java -jar 逻辑外移至 DefaultArthasLauncher）。 */
     private void startArthas(String namespace, String pod, long pid) {
-        K8sExec.ExecResult r;
         try {
-            r = exec.exec(namespace, pod, ATTACH_TIMEOUT,
-                    "java", "-jar", REMOTE_ARTHAS_JAR, String.valueOf(pid),
-                    "--attach-only",
-                    "--http-port", String.valueOf(mcpPort),
-                    "--target-ip", targetIp,
-                    "--telnet-port", "0",
-                    "--use-version", arthasVersion,
-                    "--password", arthasPassword);
-        } catch (K8sExecException e) {
-            throw new ProvisionException(errorOf("attach_failed", "start_arthas",
-                    "arthas attach 执行失败：" + e.getMessage()));
-        }
-        if (r.exitCode() != 0) {
-            throw new ProvisionException(errorOf("attach_failed", "start_arthas",
-                    "arthas attach 非零退出（exit=" + r.exitCode() + "）：" + r.stderr()));
+            launcher.startArthas(buildContext(namespace, pod), pid);
+        } catch (ArthasLauncher.LaunchException e) {
+            throw new ProvisionException(e.error());
         }
     }
 
@@ -5230,6 +5502,7 @@ public class ArthasProvisioner {
         }
     }
 }
+
 ```
 
 
@@ -5276,11 +5549,24 @@ public final class K8sClientFactory implements AutoCloseable {
 
     public K8sClientFactory(GatewayProperties props) {
         Objects.requireNonNull(props, "props 不可为空");
-        this.client = build(props.getK8s());
+        String kc = props.getK8s().getKubeconfig();
+        this.client = buildFromKubeconfig(kc);
+        if (props.getK8s().getContext() != null && !props.getK8s().getContext().isBlank()) {
+            log.info("k8s.context 配置为 {}：当前实现尊重 kubeconfig current-context（单 context 测试床）", props.getK8s().getContext());
+        }
+        log.info("KubernetesClient 已构建（kubeconfig={}, master={})",
+                Path.of(kc).toAbsolutePath(), this.client.getMasterUrl());
     }
 
-    private static KubernetesClient build(GatewayProperties.K8s k8s) {
-        Path kubeconfig = Path.of(k8s.getKubeconfig()).toAbsolutePath();
+    /**
+     * 由 kubeconfig 路径构建 fabric8 {@link KubernetesClient}（005 多 host：每个 {@code arthas-gateway.k8s-hosts}
+     * 项按各自 kubeconfig 建独立 client）。
+     *
+     * @param kubeconfigPath kubeconfig 文件路径
+     * @return 已构建的 client（调用方负责关闭）
+     */
+    public static KubernetesClient buildFromKubeconfig(String kubeconfigPath) {
+        Path kubeconfig = Path.of(kubeconfigPath).toAbsolutePath();
         String content;
         try {
             content = Files.readString(kubeconfig);
@@ -5291,13 +5577,7 @@ public final class K8sClientFactory implements AutoCloseable {
             throw new IllegalStateException("kubeconfig 内容为空：" + kubeconfig);
         }
         Config config = Config.fromKubeconfig(content); // 取 current-context（测试床单 context）
-        if (k8s.getContext() != null && !k8s.getContext().isBlank()) {
-            log.info("k8s.context 配置为 {}：当前实现尊重 kubeconfig current-context（单 context 测试床）", k8s.getContext());
-        }
-        KubernetesClient c = new KubernetesClientBuilder().withConfig(config).build();
-        log.info("KubernetesClient 已构建（kubeconfig={}, master={})",
-                kubeconfig, c.getMasterUrl());
-        return c;
+        return new KubernetesClientBuilder().withConfig(config).build();
     }
 
     /** 单例 fabric8 客户端（list/exec/create 共用）。 */
@@ -5311,6 +5591,7 @@ public final class K8sClientFactory implements AutoCloseable {
         log.info("KubernetesClient 已关闭");
     }
 }
+
 ```
 
 
@@ -5950,10 +6231,13 @@ import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodBuilder;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceBuilder;
+import io.fabric8.kubernetes.api.model.ServicePort;
+import io.fabric8.kubernetes.api.model.ServicePortBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -6005,13 +6289,26 @@ public final class NodePortExposer {
         Objects.requireNonNull(pod, "pod 不可为空");
         Objects.requireNonNull(logicalName, "logicalName 不可为空");
         String labelValue = sanitizeLabelValue(logicalName);
-        String serviceName = sanitizeServiceName(SERVICE_PREFIX + labelValue);
 
-        // 1. label pod（幂等覆盖）
+        // 1. label pod（幂等覆盖；selector 精确命中该 pod）
         labelPod(namespace, pod, labelValue);
 
-        // 2. create-or-get NodePort Service（selector 命中该 label）
-        int nodePort = ensureNodePortService(namespace, serviceName, labelValue, mcpPort);
+        // 2. 优先复用带 label 的现有 Service（patch type+端口，K-ENS-10/11）；
+        //    找不到回退新建独立 Service（003 现状，K-ENS-10 回退，向后兼容）
+        Service labeled = findLabeledService(namespace, labelValue);
+        String serviceName;
+        int nodePort;
+        if (labeled != null) {
+            serviceName = labeled.getMetadata().getName();
+            nodePort = patchServiceAddNodePort(labeled, namespace, mcpPort);
+            log.info("复用带 label 的现有 Service（K-ENS-10/11）：{}/{} → port {}（patch）",
+                    namespace, serviceName, nodePort);
+        } else {
+            serviceName = sanitizeServiceName(SERVICE_PREFIX + labelValue);
+            nodePort = ensureNodePortService(namespace, serviceName, labelValue, mcpPort);
+            log.info("未找到带 label 的 Service，回退新建独立 Service（K-ENS-10 回退）：{}/{}",
+                    namespace, serviceName);
+        }
 
         // 3. 解析 nodeIP → mcpUrl
         String nodeIp = resolveNodeIp();
@@ -6020,6 +6317,89 @@ public final class NodePortExposer {
         log.info("NodePort 已暴露：{}/{} → {}（service={} nodePort={}）",
                 namespace, pod, mcpUrl, serviceName, nodePort);
         return new ExposeResult(serviceName, nodePort, mcpUrl, serviceRef);
+    }
+
+    /**
+     * 查带 {@code arthas-mcp-gateway/target=<labelValue>} label 的现有 Service（005 US1，K-ENS-10）。
+     *
+     * <p>运维在业务 Service 上预打该 label 即声明「由网关复用暴露 NodePort」，ensure 优先 patch 它而非新建。
+     * labelSelector 查询（{@code services().inNamespace(ns).withLabel(k, v).list()}）。
+     *
+     * @return 命中的第一个带 label Service（多个取首）；无则 null（触发回退新建）
+     */
+    Service findLabeledService(String namespace, String labelValue) {
+        List<Service> svcs = client.services().inNamespace(namespace)
+                .withLabel(TARGET_LABEL_KEY, labelValue).list().getItems();
+        return (svcs == null || svcs.isEmpty()) ? null : svcs.get(0);
+    }
+
+    /**
+     * 在现有 Service 上 patch 出 NodePort（005 US1，K-ENS-11/12）。
+     *
+     * <ul>
+     *   <li><b>K-ENS-12 幂等</b>：已是 NodePort 且含同 targetPort 端口 → 复用既有 nodePort（不重复 patch）。</li>
+     *   <li><b>K-ENS-11</b>：否则 PUT 改 {@code type=NodePort}（ClusterIP→NodePort）+ 加端口，
+     *       K8S 在 nodePortRange 内分配 nodePort；既有端口随之暴露到节点。</li>
+     * </ul>
+     *
+     * @return 该 targetPort 对应的 nodePort（复用或新分配）
+     */
+    int patchServiceAddNodePort(Service svc, String namespace, int mcpPort) {
+        String name = svc.getMetadata().getName();
+        // 幂等：已有 targetPort=mcpPort 的 NodePort 端口 → 复用既有 nodePort（K-ENS-12）
+        Integer existing = nodePortForTargetPort(svc, mcpPort);
+        if (existing != null) {
+            log.info("Service {}/{} 已含 NodePort targetPort={} → 复用 nodePort={}（K-ENS-12 幂等）",
+                    namespace, name, mcpPort, existing);
+            return existing;
+        }
+        // patch type=NodePort（K-ENS-11）+ 确保有 targetPort=mcpPort 端口：复用既有该端口（K8S 为其分配 nodePort），
+        // 仅有该端口缺失时才加。多端口 Service 每个端口须有 name，故为无名端口补 name（仅 K8S 内部唯一性所需，不影响业务）。
+        List<ServicePort> ports = new ArrayList<>();
+        boolean hasMcpPort = false;
+        int idx = 0;
+        if (svc.getSpec() != null && svc.getSpec().getPorts() != null) {
+            for (ServicePort p : svc.getSpec().getPorts()) {
+                ServicePort copy = new ServicePortBuilder(p).build();
+                if (copy.getName() == null || copy.getName().isBlank()) {
+                    copy.setName("port-" + idx);
+                }
+                Integer tp = copy.getTargetPort() != null ? copy.getTargetPort().getIntVal() : null;
+                if (tp != null && tp == mcpPort) {
+                    hasMcpPort = true;
+                }
+                ports.add(copy);
+                idx++;
+            }
+        }
+        if (!hasMcpPort) {
+            ports.add(new ServicePortBuilder().withName("arthas-mcp-" + mcpPort)
+                    .withPort(mcpPort).withNewTargetPort(mcpPort).build());
+        }
+        Service toPatch = new ServiceBuilder(svc).editSpec()
+                .withType("NodePort").withPorts(ports).endSpec().build();
+        Service patched = client.services().inNamespace(namespace).resource(toPatch).update();
+        Integer np = nodePortForTargetPort(patched, mcpPort);
+        if (np == null) {
+            throw new IllegalStateException("patch 后未取到 nodePort（service=" + namespace + "/" + name
+                    + "）：K8S 未分配 nodePort");
+        }
+        log.info("Service {}/{} patch 为 NodePort（K-ENS-11）→ 分配 nodePort={}", namespace, name, np);
+        return np;
+    }
+
+    /** 取 Service 中 targetPort=指定值的端口 nodePort（幂等复用判定，K-ENS-12）。 */
+    private static Integer nodePortForTargetPort(Service svc, int targetPort) {
+        if (svc == null || svc.getSpec() == null || svc.getSpec().getPorts() == null) {
+            return null;
+        }
+        for (var p : svc.getSpec().getPorts()) {
+            Integer tp = (p.getTargetPort() != null) ? p.getTargetPort().getIntVal() : null;
+            if (tp != null && tp == targetPort && p.getNodePort() != null) {
+                return p.getNodePort();
+            }
+        }
+        return null;
     }
 
     /** 删除供给时建的 NodePort Service（清理副作用，幂等）。 */
@@ -6140,6 +6520,7 @@ public final class NodePortExposer {
         return out;
     }
 }
+
 ```
 
 
@@ -6302,6 +6683,282 @@ public class OrchestrationRecordStore {
         byLogicalName.clear();
     }
 }
+```
+
+
+---
+
+## com/arthas/gateway/orchestration/ArthasLauncher.java
+
+**文件**：`src/main/java/com/arthas/gateway/orchestration/ArthasLauncher.java`
+
+```java
+package com.arthas.gateway.orchestration;
+
+import java.time.Duration;
+
+/**
+ * arthas 启动策略 SPI（005 特性，US3，research.md R7）。
+ *
+ * <p>把 003 既有 {@link ArthasProvisioner} 硬编码的「定位 JVM + 启动 arthas」抽为策略点：
+ * 默认实现 {@link DefaultArthasLauncher}（PATH 的 java/jps + 标准参数，= 003 现状，INV-LAUNCHER-2）；
+ * 用户写 {@code @org.springframework.context.annotation.Primary @Component} 实现类覆盖，
+ * 定制 javaPath + 完整命令模板（适配容器独立 JDK 部署，FR-009~012，INV-LAUNCHER-3）。
+ *
+ * <p>失败抛 {@link LaunchException}（携带 {@link OrchestrationRecord.Error}），由
+ * {@link ArthasProvisioner} 映射 ensure failed 记录（K-ENS-4/5 不破，INV-LAUNCHER-4）。
+ *
+ * <p>SPI 测试含 test fixture 真实实现（{@code TestArthasLauncher}，非 mock，INV-LAUNCHER-5）。
+ */
+public interface ArthasLauncher {
+
+    /** 定位 JVM PID（默认实现：{@code jps -q | head -1}）。失败抛 {@link LaunchException}。 */
+    long locatePid(LaunchContext ctx);
+
+    /** 启动 arthas（默认实现：{@code java -jar arthas-boot.jar <pid> --attach-only ...}）。失败抛 {@link LaunchException}。 */
+    void startArthas(LaunchContext ctx, long pid);
+
+    /**
+     * 启动上下文（SPI 入参，封装 ensure 子步所需）。record 不可变。
+     *
+     * @param namespace      K8S namespace
+     * @param pod            目标 pod 名
+     * @param exec           fabric8 exec 工具（默认实现用；自定义实现可用可不用）
+     * @param mcpPort        pod 内 arthas MCP 端口（NodePort targetPort）
+     * @param targetIp       arthas 绑定地址（0.0.0.0，NodePort 可达）
+     * @param arthasVersion  arthas 版本（4.3.0）
+     * @param arthasPassword arthas 鉴权密码
+     * @param arthasBootJar  pod 内 jar 路径（/tmp/arthas-boot.jar，forward slash，Linux pod 原样用）
+     * @param attachTimeout  启动 arthas 超时
+     * @param locateTimeout  定位 JVM 超时
+     */
+    record LaunchContext(
+            String namespace,
+            String pod,
+            K8sExec exec,
+            int mcpPort,
+            String targetIp,
+            String arthasVersion,
+            String arthasPassword,
+            String arthasBootJar,
+            Duration attachTimeout,
+            Duration locateTimeout) {
+    }
+
+    /** 启动失败（携带 {@link OrchestrationRecord.Error}，供 ArthasProvisioner 映射 failed@locate_jvm/start_arthas）。 */
+    class LaunchException extends RuntimeException {
+        private final OrchestrationRecord.Error error;
+
+        public LaunchException(OrchestrationRecord.Error error) {
+            super(error.reason() + "@" + error.phase() + ": " + error.message());
+            this.error = error;
+        }
+
+        public OrchestrationRecord.Error error() {
+            return error;
+        }
+    }
+}
+
+```
+
+
+---
+
+## com/arthas/gateway/orchestration/DefaultArthasLauncher.java
+
+**文件**：`src/main/java/com/arthas/gateway/orchestration/DefaultArthasLauncher.java`
+
+```java
+package com.arthas.gateway.orchestration;
+
+import java.util.regex.Pattern;
+
+/**
+ * 默认 {@link ArthasLauncher}（005 特性，US3，INV-LAUNCHER-2）。
+ *
+ * <p>003 既有 {@link ArthasProvisioner#locateJvm} + {@link ArthasProvisioner#startArthas} 逻辑外移：
+ * PATH 的 {@code jps}（定位 JVM）+ {@code java -jar} 标准参数（启动 arthas），与 003 逐字一致。
+ *
+ * <p>装配：{@code @ConditionalOnMissingBean(ArthasLauncher.class)}（用户未提供自定义实现时生效，
+ * INV-LAUNCHER-2 兼容现状）。
+ */
+public class DefaultArthasLauncher implements ArthasLauncher {
+
+    /** 纯数字 PID 行（jps -q 输出）。 */
+    private static final Pattern PID_LINE = Pattern.compile("\\s*(\\d+)\\s*");
+
+    @Override
+    public long locatePid(LaunchContext ctx) {
+        K8sExec.ExecResult r;
+        try {
+            r = ctx.exec().exec(ctx.namespace(), ctx.pod(), ctx.locateTimeout(),
+                    "sh", "-c", "jps -q 2>/dev/null | grep -E '^[0-9]+$' | head -1");
+        } catch (K8sExecException e) {
+            throw new LaunchException(new OrchestrationRecord.Error("locate_jvm", "k8s_unreachable", e.getMessage()));
+        }
+        if (r.exitCode() != 0) {
+            throw new LaunchException(new OrchestrationRecord.Error("locate_jvm", "no_shell",
+                    "jps exec 非零退出（exit=" + r.exitCode() + "）：" + r.stderr()));
+        }
+        String pidStr = r.stdout().trim();
+        if (!PID_LINE.matcher(pidStr).matches()) {
+            throw new LaunchException(new OrchestrationRecord.Error("locate_jvm", "no_jvm",
+                    "pod 内无运行中 JVM（" + ctx.namespace() + "/" + ctx.pod() + "）"));
+        }
+        return Long.parseLong(pidStr.trim());
+    }
+
+    @Override
+    public void startArthas(LaunchContext ctx, long pid) {
+        K8sExec.ExecResult r;
+        try {
+            r = ctx.exec().exec(ctx.namespace(), ctx.pod(), ctx.attachTimeout(),
+                    "java", "-jar", ctx.arthasBootJar(), String.valueOf(pid),
+                    "--attach-only",
+                    "--http-port", String.valueOf(ctx.mcpPort()),
+                    "--target-ip", ctx.targetIp(),
+                    "--telnet-port", "0",
+                    "--use-version", ctx.arthasVersion(),
+                    "--password", ctx.arthasPassword());
+        } catch (K8sExecException e) {
+            throw new LaunchException(new OrchestrationRecord.Error("start_arthas", "attach_failed",
+                    "arthas attach 执行失败：" + e.getMessage()));
+        }
+        if (r.exitCode() != 0) {
+            throw new LaunchException(new OrchestrationRecord.Error("start_arthas", "attach_failed",
+                    "arthas attach 非零退出（exit=" + r.exitCode() + "）：" + r.stderr()));
+        }
+    }
+}
+
+```
+
+
+---
+
+## com/arthas/gateway/orchestration/K8sBackendResolver.java
+
+**文件**：`src/main/java/com/arthas/gateway/orchestration/K8sBackendResolver.java`
+
+```java
+package com.arthas.gateway.orchestration;
+
+import com.arthas.gateway.backend.BackendConfig;
+import com.arthas.gateway.backend.BackendResolver;
+import com.arthas.gateway.config.GatewayProperties;
+import io.fabric8.kubernetes.client.KubernetesClient;
+
+import java.time.Clock;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * K8S 模式后端懒 resolve 实现（005 US2，research.md R6，INV-K8SHOST-2/3/5）。
+ *
+ * <p>{@link BackendResolver} 的 orchestration 实装（gateway-core 定义接口，零 fabric8 依赖——本类持
+ * {@link ArthasProvisioner} 等编排依赖，位于 orchestration 包，ArchUnit INV-BOUNDARY-2 守护）。
+ *
+ * <h3>resolve 流程</h3>
+ * <ol>
+ *   <li><b>静态模式旁路</b>（config.k8sHost 空）→ {@code Optional.empty()}，由 BackendEntry 用 config.url（INV-K8SHOST-5）。</li>
+ *   <li><b>K8S 模式</b>（config.k8sHost 非空）：
+ *     <ul>
+ *       <li>host 不在 provisioners 映射 → {@link K8sResolveException} reason=unknown_k8s_host（INV-K8SHOST-3）。</li>
+ *       <li>按 logicalName={@code {hostName}-{pod}} 缓存命中 → 直接返（INV-K8SHOST-2，不重复 ensure）。</li>
+ *       <li>未缓存 → 调 {@link ArthasProvisioner#ensure}（注入 arthas + NodePort 暴露 + 健康检查）拿 mcpUrl，
+ *           ready/reused 终态 → 缓存并返；failed/其他 → {@link K8sResolveException} reason=ensure_failed。</li>
+ *     </ul>
+ *   </li>
+ * </ol>
+ *
+ * <p><b>缓存粒度</b>：按 logicalName（hostName + pod 派生）缓存 mcpUrl——同一 K8S 后端首次路由 ensure 一次，
+ * 后续命中缓存（ensure 原子幂等，但避免重复 ensure 的 arthas attach / NodePort 往返开销）。
+ */
+public class K8sBackendResolver implements BackendResolver, AutoCloseable {
+
+    private final Map<String, ArthasProvisioner> provisioners;
+    private final Map<String, GatewayProperties.K8sHost> hosts;
+    private final Clock clock;
+    /** logicalName → mcpUrl 缓存（幂等命中，INV-K8SHOST-2）。 */
+    private final ConcurrentHashMap<String, String> cache = new ConcurrentHashMap<>();
+    /** 本 resolver 拥有的 host clients（容器关闭时释放，生命周期随 bean）。 */
+    private List<KubernetesClient> ownedClients = List.of();
+
+    public K8sBackendResolver(Map<String, ArthasProvisioner> provisioners,
+                              Map<String, GatewayProperties.K8sHost> hosts, Clock clock) {
+        this.provisioners = Objects.requireNonNull(provisioners, "provisioners 不可为空");
+        this.hosts = Objects.requireNonNull(hosts, "hosts 不可为空");
+        this.clock = Objects.requireNonNull(clock, "clock 不可为空");
+    }
+
+    @Override
+    public Optional<String> resolveMcpUrl(BackendConfig config) {
+        if (!config.isK8sMode()) {
+            return Optional.empty(); // 静态模式旁路（INV-K8SHOST-5）
+        }
+        String host = config.k8sHost();
+        ArthasProvisioner provisioner = provisioners.get(host);
+        if (provisioner == null) {
+            throw new K8sResolveException("unknown_k8s_host",
+                    "K8S host 未在 arthas-gateway.k8s-hosts 配置：" + host); // INV-K8SHOST-3
+        }
+        GatewayProperties.K8sHost meta = hosts.get(host);
+        String server = meta != null && meta.getName() != null && !meta.getName().isBlank() ? meta.getName() : host;
+        String namespace = meta != null && meta.getNamespace() != null && !meta.getNamespace().isBlank()
+                ? meta.getNamespace() : "default";
+        String logicalName = ArthasProvisioner.deriveLogicalName(server, config.pod());
+
+        String mcpUrl = cache.computeIfAbsent(logicalName, k -> doEnsure(provisioner, server, host, config.pod(), namespace));
+        return Optional.of(mcpUrl);
+    }
+
+    private String doEnsure(ArthasProvisioner provisioner, String server, String host, String pod, String namespace) {
+        OrchestrationRecord rec = provisioner.ensure(server, pod, namespace, clock.instant());
+        if (rec.status() != OrchestrationRecord.Status.READY
+                && rec.status() != OrchestrationRecord.Status.REUSED) {
+            throw new K8sResolveException("ensure_failed",
+                    host + "/" + pod + " ensure 终态=" + rec.status()
+                            + (rec.error() != null ? " reason=" + rec.error().reason() + "@" + rec.error().phase() : ""));
+        }
+        return rec.mcpUrl();
+    }
+
+    /** 注入本 resolver 拥有的 host clients（容器关闭时一并释放）。 */
+    public void setOwnedClients(List<KubernetesClient> clients) {
+        this.ownedClients = new ArrayList<>(clients);
+    }
+
+    @Override
+    public void close() {
+        for (KubernetesClient c : ownedClients) {
+            try {
+                c.close();
+            } catch (Exception ignored) {
+                // 关闭异常忽略（幂等清理）
+            }
+        }
+    }
+
+    /** K8S 懒 resolve 故障（unknown_k8s_host / ensure_failed），携带 reason 供上层观测/分类。 */
+    public static class K8sResolveException extends RuntimeException {
+        private final String reason;
+
+        public K8sResolveException(String reason, String message) {
+            super(reason + ": " + message);
+            this.reason = reason;
+        }
+
+        public String reason() {
+            return reason;
+        }
+    }
+}
+
 ```
 
 

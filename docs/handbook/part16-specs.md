@@ -1,4 +1,4 @@
-# Part 16 · 4 特性 spec-kit SDD 全套文档
+# Part 16 · 5 特性 spec-kit SDD 全套文档
 
 > 本附录摘录 001/002/003/004 四特性的 spec/plan/research/data-model/contracts/quickstart/tasks 全套 SDD 文档，作为规格级参考。
 
@@ -5515,4 +5515,27 @@ Task T016: "BackendAdminContractIT（真实 IT）"
 - **前端 = 展示层**（原则六 R13）：核心逻辑 Java 后端、前端仅 fetch + render + download；node/vite 工具链经 `frontend-maven-plugin` 集成（FR-011，CI 可复现）
 - 每个任务或逻辑组完成后提交；任一 checkpoint 可停下独立验证；同一问题连续失败 3 次暂停重评（CLAUDE.md）
 ```
+
+
+---
+
+
+## `specs/005-k8s-orchestration-iteration/`（摘要索引）
+
+> 005 = K8S 编排能力迭代（三点：① ensure 的 NodePort 暴露改为复用带 `arthas-mcp-gateway/target` label 的现有 Service（patch type+端口），找不到回退新建；② 后端配置 K8S 场景新增 K8S Host 配置实体 `arthas-gateway.k8s-hosts`（远端 Linux 入口），BackendConfig 加 `k8sHost`+`pod`（与 url 互斥），首次路由懒 resolve（`BackendResolver` 接口 gateway-core 定义 / `K8sBackendResolver` orchestration 实现）；③ JDK 适配 SPI（`ArthasLauncher` 策略接口 + `DefaultArthasLauncher` 默认 + 用户 `@Primary` 定制 + test fixture 真实实现 TDD）。零 gateway-core K8S 依赖不变（ArchUnit 守护），003 既有契约全部不破）。
+
+### 文件清单与主题摘要
+
+| 文件 | 主题摘要 |
+|------|----------|
+| `spec.md` | 三个用户故事（Service 复用 US1 / K8S Host 配置 US2 / JDK 适配 SPI US3）的 Given-When-Then 验收场景 + FR-001~015 功能需求 + SC-001~006 成功标准 + 边缘案例与假设（P1/P2 优先级划分）。 |
+| `plan.md` | 实现计划——技术上下文（Java 21 / Spring Boot 4.1.0 / fabric8 7.6.1，无新增依赖）、单 Maven 模块包结构（`BackendResolver` 接口在 gateway-core / 实现在 orchestration）、4 项复杂度偏离追踪（含正当理由）、宪法八原则检查全 PASS。 |
+| `research.md` | R1-R9 九项技术决策——R1 Service label 标记识别、R2 ClusterIP 自动 patch NodePort、R3 懒 resolve 时机（首次路由）、R4 K8sHost 配置位置（application.yml）、R5 多 host 独立 KubernetesClient、R6 BackendResolver 接口位置（gateway-core）、R7 ArthasLauncher SPI 形式、R8 @ConditionalOnMissingBean+@Primary 装配、R9 label key 复用 `arthas-mcp-gateway/target`。 |
+| `data-model.md` | 新增/增量实体——K8sHost（配置态，name+kubeconfig+namespace）、BackendConfig 加 `k8sHost`+`pod`（与 url 互斥校验）、BackendResolver 接口（gateway-core，零 fabric8）、K8sBackendResolver（Map<host,provisioner> + 缓存）、ArthasLauncher SPI + LaunchContext record + LaunchException、DefaultArthasLauncher（003 现状外移）、BackendEntry.initializeOnce 懒 resolve hook。 |
+| `contracts/orchestration-iteration-invariants.md` | 新增不变量 K-ENS-10/11/12（Service 复用 + ClusterIP 自动改 + patch 幂等）+ INV-K8SHOST-1~5（url/k8sHost 互斥 + 缓存幂等 + host 不存在/无 resolver 错误 + 静态旁路）+ INV-LAUNCHER-1~5（SPI 委托 + Default 兼容 + @Primary 覆盖 + LaunchException 映射 + test fixture 真实实现）+ INV-BOUNDARY-1/2（ArchUnit 包边界）+ 003 回归契约门禁（K-ATOMIC-1/K-ENS-2~9/SC-001）。 |
+| `quickstart.md` | 端到端验证指南——场景 A（Service 复用，K-ENS-10/11/12）、场景 B（K8S Host 配置 + 懒 resolve，INV-K8SHOST-1~5）、场景 C（自定义 @Primary ArthasLauncher 独立 JDK）、场景 D（003 回归）+ SPI test fixture 验证 + Done Definition 验证清单。 |
+| `tasks.md` | 31 个任务（T001-T031）6 个 Phase（Setup K8sHost 配置 / Foundational SPI+接口 / US1 Service 复用 / US2 K8S Host 懒 resolve / US3 JDK SPI / Polish 回归+ArchUnit+文档），TDD 测试先于实现、标注并行机会与依赖执行序。 |
+| `checklists/requirements.md` | 规格质量校验清单——内容质量（聚焦 WHAT/WHY）、需求完整性（FR↔SC↔验收场景三向可溯）、特性就绪度三项全 pass，确认 spec 忠实反映 brainstorming 设计并可进入 `/speckit-plan`。 |
+
+> 各文件完整内容见仓库 `specs/005-k8s-orchestration-iteration/` 目录；设计决策见 `docs/superpowers/specs/2026-07-10-k8s-orchestration-iteration-design.md`。
 

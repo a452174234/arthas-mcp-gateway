@@ -1632,6 +1632,42 @@ class PackageBoundaryTest {
 }
 ```
 
+> **005 扩展（+2 ArchUnit 规则，INV-BOUNDARY-1/2）**：005 K8S 编排迭代为本测试新增 2 条规则（并补
+> `import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes`），锁定 `BackendResolver` 接口倒置分离——
+> 接口驻 gateway-core `backend` 包（零 fabric8 依赖），实现 `K8sBackendResolver` 驻 `orchestration` 包（持 fabric8/
+> ArthasProvisioner），确保 K8S 懒 resolve 实现不漂入 gateway-core 破零 K8S 依赖。新增规则源码：
+>
+> ```java
+>     /**
+>      * 005 US2 INV-BOUNDARY-1：{@code BackendResolver} 接口 gateway-core 定义（backend 包，零 fabric8/orchestration 依赖）。
+>      *
+>      * <p>接口倒置——诊断核心依赖 backend.BackendResolver（零 K8S），实现在 orchestration（K8sBackendResolver）。
+>      * 被 {@link #diagnosticCoreDoesNotDependOnK8sClientApi}（backend 包零 fabric8）覆盖，本规则显式锁定接口位置。
+>      */
+>     @Test
+>     void backendResolverInterfaceResidesInBackendPackage() {
+>         classes().that().haveSimpleName("BackendResolver")
+>                 .should().resideInAPackage("com.arthas.gateway.backend")
+>                 .because("005 INV-BOUNDARY-1: BackendResolver 接口 gateway-core 定义（backend 包，零 fabric8）；"
+>                         + "实现在 orchestration（K8sBackendResolver），ArchUnit 锁定接口位置防漂移")
+>                 .check(classes);
+>     }
+>
+>     /**
+>      * 005 US2 INV-BOUNDARY-2：{@code K8sBackendResolver} 实现驻 orchestration 包（依赖 fabric8/ArthasProvisioner）。
+>      *
+>      * <p>确保 K8S 懒 resolve 实现（持编排依赖）不误放 gateway-core；与 BackendResolver 接口（backend 包）的倒置分离。
+>      */
+>     @Test
+>     void k8sBackendResolverResidesInOrchestration() {
+>         classes().that().haveSimpleName("K8sBackendResolver")
+>                 .should().resideInAPackage("com.arthas.gateway.orchestration")
+>                 .because("005 INV-BOUNDARY-2: K8sBackendResolver 实现在 orchestration 包（依赖 fabric8/"
+>                         + "ArthasProvisioner），不漂入 gateway-core 破零 K8S 依赖")
+>                 .check(classes);
+>     }
+> ```
+
 
 ---
 
@@ -2544,6 +2580,92 @@ class BackendEntryInterceptionLayerTest {
 
 ---
 
+## com/arthas/gateway/backend/BackendEntryLazyResolveTest.java
+
+**文件**：`src/test/java/com/arthas/gateway/backend/BackendEntryLazyResolveTest.java`
+
+```java
+package com.arthas.gateway.backend;
+
+import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import org.junit.jupiter.api.Test;
+
+import java.util.Map;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+/**
+ * 005 US2 BackendEntry 懒 resolve hook 单测（T014，INV-K8SHOST-4/5）。
+ *
+ * <p>验证 BackendEntry.initializeOnce 的 K8S 模式懒 resolve：K8S 模式（client=null）首调 invoke 时经
+ * {@link BackendResolver} resolve 出 mcpUrl 建 {@link HttpBackendClient}（覆盖 config.url）；静态模式旁路。
+ * 真实 K8S ensure 由 {@code K8sBackendResolverContractIT} 覆盖——本测 mock resolver + mock client。
+ */
+class BackendEntryLazyResolveTest {
+
+    private static BackendConfig k8sConfig(String host, String pod) {
+        return new BackendConfig("k", null, Protocol.STREAMABLE,
+                new BackendConfig.Auth(AuthMode.NONE, null, null, null),
+                5000, 30000, 5, host, pod, Source.STATIC);
+    }
+
+    private static BackendConfig staticConfig() {
+        return new BackendConfig("s", "http://127.0.0.1:8563", Protocol.STREAMABLE,
+                new BackendConfig.Auth(AuthMode.NONE, null, null, null),
+                5000, 30000, 5);
+    }
+
+    private static CircuitBreaker breaker() {
+        return mock(CircuitBreaker.class);
+    }
+
+    /** K8S 模式（client=null）首调 invoke → 懒 resolve：resolver.resolveMcpUrl 被调（建 HttpBackendClient）。 */
+    @Test
+    void k8sModeLazilyResolvesMcpUrlOnFirstInvoke() {
+        BackendResolver resolver = mock(BackendResolver.class);
+        when(resolver.resolveMcpUrl(any())).thenReturn(Optional.of("http://resolved.invalid:30050"));
+        BackendEntry entry = new BackendEntry(k8sConfig("debian", "pod"), null, breaker(), Optional.of(resolver));
+
+        // HttpBackendClient(resolved url) initialize 连不可达地址 → BackendUnreachableException（但 resolver 已被调）
+        assertThatThrownBy(() -> entry.invoke("jvm", Map.of()))
+                .isInstanceOf(BackendUnreachableException.class);
+        verify(resolver).resolveMcpUrl(any()); // 懒 resolve 触发
+    }
+
+    /** K8S 模式但无 resolver（未配 k8s-hosts）→ no_k8s_resolver（INV-K8SHOST-4）。 */
+    @Test
+    void k8sModeWithoutResolverThrowsNoK8sResolver() {
+        BackendEntry entry = new BackendEntry(k8sConfig("debian", "pod"), null, breaker(), Optional.empty());
+
+        assertThatThrownBy(() -> entry.invoke("jvm", Map.of()))
+                .isInstanceOf(BackendUnreachableException.class)
+                .hasMessageContaining("no_k8s_resolver");
+    }
+
+    /** 静态模式（client 预建）→ invoke 用预建 client，resolver 不被调（INV-K8SHOST-5 旁路）。 */
+    @Test
+    void staticModeUsesPrebuiltClientBypassingResolver() {
+        BackendResolver resolver = mock(BackendResolver.class);
+        BackendClient client = mock(BackendClient.class);
+        when(client.callTool(any(), any())).thenReturn(mock(CallToolResult.class));
+
+        BackendEntry entry = new BackendEntry(staticConfig(), client, breaker(), Optional.of(resolver));
+        entry.invoke("jvm", Map.of());
+
+        verifyNoInteractions(resolver); // 静态模式旁路，不懒 resolve
+        verify(client).callTool("jvm", Map.of()); // 用预建 client
+    }
+}
+```
+
+---
+
 ## com/arthas/gateway/backend/BackendEntryTest.java
 
 **文件**：`src/test/java/com/arthas/gateway/backend/BackendEntryTest.java`
@@ -2981,6 +3103,44 @@ class BackendRegistryTest {
 }
 ```
 
+
+---
+
+## com/arthas/gateway/backend/BackendResolverTest.java
+
+**文件**：`src/test/java/com/arthas/gateway/backend/BackendResolverTest.java`
+
+```java
+package com.arthas.gateway.backend;
+
+import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+
+/**
+ * 005 BackendResolver 接口契约（T007）：接口可返 mcpUrl（K8S 模式）/ empty（静态模式）。
+ * 具体 K8S vs 静态判定逻辑在 K8sBackendResolverTest（T013）测。
+ */
+class BackendResolverTest {
+
+    @Test
+    void resolverCanReturnMcpUrl() {
+        BackendConfig config = mock(BackendConfig.class);
+        BackendResolver resolver = c -> Optional.of("http://resolved:30000");
+        assertThat(resolver.resolveMcpUrl(config)).contains("http://resolved:30000");
+    }
+
+    @Test
+    void resolverCanReturnEmptyForStaticMode() {
+        BackendConfig config = mock(BackendConfig.class);
+        BackendResolver resolver = c -> Optional.empty();
+        assertThat(resolver.resolveMcpUrl(config)).isEmpty();
+    }
+}
+```
 
 ---
 
@@ -7103,6 +7263,164 @@ class BackendRegistryHealthIndicatorTest {
 
 ---
 
+## com/arthas/gateway/orchestration/ArthasLauncherSpiTest.java
+
+**文件**：`src/test/java/com/arthas/gateway/orchestration/ArthasLauncherSpiTest.java`
+
+```java
+package com.arthas.gateway.orchestration;
+
+import com.arthas.gateway.backend.DynamicBackendStore;
+import io.fabric8.kubernetes.client.KubernetesClient;
+import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * 005 US3 ArthasLauncher SPI 委托单测（T023，INV-LAUNCHER-1/4）。
+ *
+ * <p>验证 {@link ArthasProvisioner} 委托 {@link ArthasLauncher}（locatePid + startArthas，<b>非硬编码</b>，
+ * INV-LAUNCHER-1）+ {@code LaunchException} 映射为 failed 记录（携带 error reason/phase，INV-LAUNCHER-4）。
+ * {@code @Primary} 覆盖（INV-LAUNCHER-3）与真实链路由 {@code CustomLauncherContractIT}（T024）覆盖。
+ *
+ * <p>用 {@link org.mockito.Mockito#spy} 覆盖 {@code installArthas}（跳过真实 fabric8 upload）+ {@code probeHealthy}
+ *（返 true 跳过真实 MCP 握手），聚焦 launcher 委托。
+ */
+class ArthasLauncherSpiTest {
+
+    /** 构造 spy ArthasProvisioner（mock exposer/store/client，注入指定 launcher）。 */
+    private ArthasProvisioner provisioner(ArthasLauncher launcher) {
+        NodePortExposer exposer = mock(NodePortExposer.class);
+        when(exposer.expose(any(), any(), any(), anyInt())).thenReturn(
+                new NodePortExposer.ExposeResult("arthas-mcp-svc", 30000,
+                        "http://1.2.3.4:30000", "arthas-mcp-svc/30000"));
+        DynamicBackendStore store = mock(DynamicBackendStore.class);
+        when(store.get(any())).thenReturn(Optional.empty()); // 无幂等复用 → 走供给
+        OrchestrationRecordStore rs = mock(OrchestrationRecordStore.class);
+        KubernetesClient client = mock(KubernetesClient.class);
+        return spy(new ArthasProvisioner(client, exposer, store, rs, "0.0.0.0",
+                "tools/arthas-boot.jar", 8563, "4.3.0", "pwd", Duration.ofMillis(50), launcher));
+    }
+
+    /** INV-LAUNCHER-1：ArthasProvisioner.ensure 委托 launcher.locatePid + startArthas（pid 传递）。 */
+    @Test
+    void provisionerDelegatesLocatePidAndStartArthasToLauncher() {
+        ArthasLauncher launcher = mock(ArthasLauncher.class);
+        when(launcher.locatePid(any())).thenReturn(12345L);
+        ArthasProvisioner p = provisioner(launcher);
+        doNothing().when(p).installArthas(any(), any()); // 跳过真实 upload
+        doReturn(true).when(p).probeHealthy(any(), any()); // 跳过真实握手
+
+        OrchestrationRecord rec = p.ensure("debian", "demo-business", "default", Instant.EPOCH);
+
+        verify(launcher).locatePid(any()); // 委托定位
+        verify(launcher).startArthas(any(), eq(12345L)); // 委托启动 + pid 透传
+        assertThat(rec.status()).as("全子步成功 → ready").isEqualTo(OrchestrationRecord.Status.READY);
+    }
+
+    /** INV-LAUNCHER-4：launcher.locatePid 抛 LaunchException → failed 记录（携带 error reason/phase）。 */
+    @Test
+    void launcherLaunchExceptionMappedToFailedRecord() {
+        ArthasLauncher launcher = mock(ArthasLauncher.class);
+        when(launcher.locatePid(any())).thenThrow(new ArthasLauncher.LaunchException(
+                new OrchestrationRecord.Error("locate_jvm", "no_jvm", "测试注入故障")));
+        ArthasProvisioner p = provisioner(launcher);
+
+        OrchestrationRecord rec = p.ensure("debian", "demo-business", "default", Instant.EPOCH);
+
+        assertThat(rec.status()).as("LaunchException → failed（不注册）").isEqualTo(OrchestrationRecord.Status.FAILED);
+        assertThat(rec.error().reason()).isEqualTo("no_jvm");
+        assertThat(rec.error().phase()).isEqualTo("locate_jvm");
+    }
+
+    /** INV-LAUNCHER-4：launcher.startArthas 抛 LaunchException → failed（attach_failed@start_arthas）。 */
+    @Test
+    void startArthasLaunchExceptionMappedToFailedRecord() {
+        ArthasLauncher launcher = mock(ArthasLauncher.class);
+        when(launcher.locatePid(any())).thenReturn(12345L);
+        doThrow(new ArthasLauncher.LaunchException(
+                new OrchestrationRecord.Error("start_arthas", "attach_failed", "测试注入启动故障")))
+                .when(launcher).startArthas(any(), anyLong());
+        ArthasProvisioner p = provisioner(launcher);
+        doNothing().when(p).installArthas(any(), any());
+
+        OrchestrationRecord rec = p.ensure("debian", "demo-business", "default", Instant.EPOCH);
+
+        assertThat(rec.status()).isEqualTo(OrchestrationRecord.Status.FAILED);
+        assertThat(rec.error().reason()).isEqualTo("attach_failed");
+        assertThat(rec.error().phase()).isEqualTo("start_arthas");
+    }
+}
+```
+
+---
+
+## com/arthas/gateway/orchestration/ArthasLauncherTest.java
+
+**文件**：`src/test/java/com/arthas/gateway/orchestration/ArthasLauncherTest.java`
+
+```java
+package com.arthas.gateway.orchestration;
+
+import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+
+/**
+ * 005 ArthasLauncher SPI 接口契约（T003）：LaunchContext 字段全集 + LaunchException 携带 Error。
+ */
+class ArthasLauncherTest {
+
+    @Test
+    void launchContextCarriesAllFields() {
+        K8sExec exec = mock(K8sExec.class);
+        ArthasLauncher.LaunchContext ctx = new ArthasLauncher.LaunchContext(
+                "default", "demo-business", exec,
+                8563, "0.0.0.0", "4.3.0", "secret",
+                "/tmp/arthas-boot.jar",
+                Duration.ofSeconds(300), Duration.ofSeconds(10));
+        assertThat(ctx.namespace()).isEqualTo("default");
+        assertThat(ctx.pod()).isEqualTo("demo-business");
+        assertThat(ctx.exec()).isSameAs(exec);
+        assertThat(ctx.mcpPort()).isEqualTo(8563);
+        assertThat(ctx.targetIp()).isEqualTo("0.0.0.0");
+        assertThat(ctx.arthasVersion()).isEqualTo("4.3.0");
+        assertThat(ctx.arthasPassword()).isEqualTo("secret");
+        assertThat(ctx.arthasBootJar()).isEqualTo("/tmp/arthas-boot.jar");
+        assertThat(ctx.attachTimeout()).isEqualTo(Duration.ofSeconds(300));
+        assertThat(ctx.locateTimeout()).isEqualTo(Duration.ofSeconds(10));
+    }
+
+    @Test
+    void launchExceptionCarriesErrorAndMessage() {
+        OrchestrationRecord.Error err = new OrchestrationRecord.Error("start_arthas", "attach_failed", "exit=1");
+        ArthasLauncher.LaunchException ex = new ArthasLauncher.LaunchException(err);
+        assertThat(ex.error()).isEqualTo(err);
+        assertThat(ex.getMessage()).contains("attach_failed", "start_arthas", "exit=1");
+    }
+}
+```
+
+---
+
 ## com/arthas/gateway/orchestration/ArthasProvisionerIT.java
 
 **文件**：`src/test/java/com/arthas/gateway/orchestration/ArthasProvisionerIT.java`
@@ -7419,6 +7737,435 @@ class ArthasProvisionerIT {
 }
 ```
 
+
+---
+
+## com/arthas/gateway/orchestration/CustomLauncherContractIT.java
+
+**文件**：`src/test/java/com/arthas/gateway/orchestration/CustomLauncherContractIT.java`
+
+```java
+package com.arthas.gateway.orchestration;
+
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
+import org.springframework.test.context.TestPropertySource;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * 005 US3 自定义 ArthasLauncher 契约 IT（T024，INV-LAUNCHER-3，真实 Spring 装配 + @Primary 覆盖）。
+ *
+ * <p>验证 SPI 替换机制：用户 {@code @Primary} 自定义 {@link ArthasLauncher} 覆盖 {@code DefaultArthasLauncher}
+ * （{@code @ConditionalOnMissingBean} 让位），ArthasProvisioner 注入自定义实现。
+ *
+ * <p>用 {@link TestArthasLauncher}（真实实现 fixture，T022）经 {@code @TestConfiguration} 显式装配为 @Primary bean
+ * （<b>不</b>用 @Component，避免污染其他 IT 的 Default 装配）。
+ *
+ * <p><b>启用门禁</b>：kubeconfig 不可读 → 跳过（CI 无 k3s）。@Primary 覆盖是 Spring 装配行为，不依赖集群可达性。
+ */
+@SpringBootTest
+@Import(CustomLauncherContractIT.TestLauncherConfig.class)
+@TestPropertySource(properties = "arthas-gateway.k8s.kubeconfig=test-env/k8s/kubeconfig/k3s-admin.yaml")
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class CustomLauncherContractIT {
+
+    @Autowired(required = false)
+    private ArthasLauncher launcher;
+
+    @BeforeAll
+    void requireK8s() {
+        Assumptions.assumeTrue(Files.isReadable(Path.of("test-env/k8s/kubeconfig/k3s-admin.yaml")),
+                "跳过：未找到可读 kubeconfig（K8S 编排未装配，DefaultArthasLauncher/自定义 launcher 均不装配）");
+        Assumptions.assumeTrue(launcher != null, "跳过：无 ArthasLauncher bean");
+    }
+
+    /** INV-LAUNCHER-3：@Primary 自定义 launcher 覆盖 DefaultArthasLauncher。 */
+    @Test
+    void customPrimaryLauncherReplacesDefault() {
+        assertThat(launcher)
+                .as("INV-LAUNCHER-3：@Primary TestArthasLauncher 覆盖 DefaultArthasLauncher（@ConditionalOnMissingBean 让位）")
+                .isInstanceOf(TestArthasLauncher.class);
+    }
+
+    /** 用户自定义实现零代码侵入即可定制 javaPath/启动命令（SPI 口子，005 第三点需求）。 */
+    @Test
+    void customLauncherIsRealImplNotMock() {
+        assertThat(launcher).as("真实实现 fixture，非 mock（INV-LAUNCHER-5）").isInstanceOf(TestArthasLauncher.class);
+        // 探针字段可观测（证明是真实记录的实现，非桩）
+        assertThat(((TestArthasLauncher) launcher).lastPid()).as("初始未调 startArthas").isEqualTo(-1L);
+    }
+
+    /** 显式装配 TestArthasLauncher 为 @Primary ArthasLauncher（覆盖 DefaultArthasLauncher）。 */
+    @TestConfiguration
+    static class TestLauncherConfig {
+        @Bean
+        @Primary
+        ArthasLauncher testArthasLauncher() {
+            return new TestArthasLauncher();
+        }
+    }
+}
+```
+
+---
+
+## com/arthas/gateway/orchestration/DefaultArthasLauncherTest.java
+
+**文件**：`src/test/java/com/arthas/gateway/orchestration/DefaultArthasLauncherTest.java`
+
+```java
+package com.arthas.gateway.orchestration;
+
+import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * 005 DefaultArthasLauncher（T005，INV-LAUNCHER-2 兼容现状）：
+ * locatePid = jps -q | head -1、startArthas = java -jar 标准参数；故障分类 no_jvm/no_shell/attach_failed。
+ */
+class DefaultArthasLauncherTest {
+
+    private ArthasLauncher.LaunchContext ctx(K8sExec exec) {
+        return new ArthasLauncher.LaunchContext("default", "demo", exec,
+                8563, "0.0.0.0", "4.3.0", "pwd",
+                "/tmp/arthas-boot.jar", Duration.ofSeconds(300), Duration.ofSeconds(10));
+    }
+
+    @Test
+    void locatePidParsesJpsOutput() {
+        K8sExec exec = mock(K8sExec.class);
+        when(exec.exec(eq("default"), eq("demo"), any(), eq("sh"), eq("-c"), any()))
+                .thenReturn(new K8sExec.ExecResult(0, "12345\n", ""));
+        assertThat(new DefaultArthasLauncher().locatePid(ctx(exec))).isEqualTo(12345L);
+    }
+
+    @Test
+    void locatePidNoJvmThrowsNoJvm() {
+        K8sExec exec = mock(K8sExec.class);
+        when(exec.exec(eq("default"), eq("demo"), any(), eq("sh"), eq("-c"), any()))
+                .thenReturn(new K8sExec.ExecResult(0, "", ""));
+        assertThatThrownBy(() -> new DefaultArthasLauncher().locatePid(ctx(exec)))
+                .isInstanceOf(ArthasLauncher.LaunchException.class)
+                .hasFieldOrPropertyWithValue("error.reason", "no_jvm");
+    }
+
+    @Test
+    void locatePidNonZeroExitThrowsNoShell() {
+        K8sExec exec = mock(K8sExec.class);
+        when(exec.exec(eq("default"), eq("demo"), any(), eq("sh"), eq("-c"), any()))
+                .thenReturn(new K8sExec.ExecResult(127, "", "jps: not found"));
+        assertThatThrownBy(() -> new DefaultArthasLauncher().locatePid(ctx(exec)))
+                .isInstanceOf(ArthasLauncher.LaunchException.class)
+                .hasFieldOrPropertyWithValue("error.reason", "no_shell")
+                .hasFieldOrPropertyWithValue("error.phase", "locate_jvm");
+    }
+
+    @Test
+    void startArthasInvokesJavaJarCommand() {
+        K8sExec exec = mock(K8sExec.class);
+        when(exec.exec(eq("default"), eq("demo"), any(), eq("java"), eq("-jar"), any(), eq("12345"),
+                eq("--attach-only"), eq("--http-port"), eq("8563"), eq("--target-ip"), eq("0.0.0.0"),
+                eq("--telnet-port"), eq("0"), eq("--use-version"), eq("4.3.0"), eq("--password"), eq("pwd")))
+                .thenReturn(new K8sExec.ExecResult(0, "", ""));
+        new DefaultArthasLauncher().startArthas(ctx(exec), 12345L);
+        verify(exec, times(1)).exec(eq("default"), eq("demo"), any(), eq("java"), eq("-jar"), any(), eq("12345"),
+                eq("--attach-only"), eq("--http-port"), eq("8563"), eq("--target-ip"), eq("0.0.0.0"),
+                eq("--telnet-port"), eq("0"), eq("--use-version"), eq("4.3.0"), eq("--password"), eq("pwd"));
+    }
+
+    @Test
+    void startArthasNonZeroExitThrowsAttachFailed() {
+        K8sExec exec = mock(K8sExec.class);
+        when(exec.exec(any(), any(), any(), eq("java"), eq("-jar"), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new K8sExec.ExecResult(1, "", "err"));
+        assertThatThrownBy(() -> new DefaultArthasLauncher().startArthas(ctx(exec), 12345L))
+                .isInstanceOf(ArthasLauncher.LaunchException.class)
+                .hasFieldOrPropertyWithValue("error.reason", "attach_failed")
+                .hasFieldOrPropertyWithValue("error.phase", "start_arthas");
+    }
+}
+```
+
+---
+
+## com/arthas/gateway/orchestration/K8sBackendResolverContractIT.java
+
+**文件**：`src/test/java/com/arthas/gateway/orchestration/K8sBackendResolverContractIT.java`
+
+```java
+package com.arthas.gateway.orchestration;
+
+import com.arthas.gateway.backend.AuthMode;
+import com.arthas.gateway.backend.BackendConfig;
+import com.arthas.gateway.backend.BackendResolver;
+import com.arthas.gateway.backend.DynamicBackendStore;
+import com.arthas.gateway.backend.Protocol;
+import com.arthas.gateway.backend.Source;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestPropertySource;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * 005 US2 K8sBackendResolver 懒 resolve 契约 IT（T015，INV-K8SHOST-2/5，真实 k3s + Spring 装配 + 真实 ensure，零桩）。
+ *
+ * <p>对真实装配的 {@link BackendResolver}（{@code K8sOrchestrationConfig} 按 {@code k8s-hosts} 建 provisioner）
+ * 发起 {@code resolveMcpUrl}，断言<b>真实 K8S</b> 行为：K8S 模式 → 真实 ensure（注入 arthas + NodePort 暴露 +
+ * 健康检查）出 mcpUrl；二次 → 缓存命中；静态模式 → empty 旁路。
+ *
+ * <h3>覆盖断言</h3>
+ * <ul>
+ *   <li>K8S 模式 backend（k8sHost=debian + pod=demo-business）→ resolve 出可达 mcpUrl（真实 ensure）。</li>
+ *   <li>二次 resolve 同 logicalName → mcpUrl 不变（缓存命中，INV-K8SHOST-2，不重复 ensure）。</li>
+ *   <li>静态模式 backend → {@code Optional.empty()} 旁路（INV-K8SHOST-5）。</li>
+ * </ul>
+ *
+ * <p><b>启用门禁</b>：kubeconfig 不可读 / demo-business pod 不存在 / 无 BackendResolver bean（CI 无 k3s）→ 跳过。
+ */
+@SpringBootTest
+@TestPropertySource(properties = {
+        "arthas-gateway.k8s.kubeconfig=test-env/k8s/kubeconfig/k3s-admin.yaml",
+        "arthas-gateway.k8s-hosts[0].name=debian",
+        "arthas-gateway.k8s-hosts[0].kubeconfig=test-env/k8s/kubeconfig/k3s-admin.yaml",
+        "arthas-gateway.k8s-hosts[0].namespace=default"
+})
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class K8sBackendResolverContractIT {
+
+    private static final String NS = "default";
+    private static final String POD = "demo-business";
+    private static final String HOST = "debian";
+    private static final String LOGICAL = "debian-demo-business";
+
+    @Autowired(required = false)
+    private BackendResolver resolver;
+    @Autowired
+    private DynamicBackendStore dynamicStore;
+
+    @BeforeAll
+    void requireClusterAndResolver() {
+        Assumptions.assumeTrue(Files.isReadable(Path.of("test-env/k8s/kubeconfig/k3s-admin.yaml")),
+                "跳过：未找到可读 kubeconfig，需真实 k3s 测试床");
+        Assumptions.assumeTrue(resolver != null, "跳过：无 BackendResolver bean（K8S 编排未装配）");
+    }
+
+    @AfterAll
+    void cleanup() {
+        // 清理 ensure 可能的动态注册（幂等；避免污染后续 IT 注册表）
+        try {
+            dynamicStore.unregister(LOGICAL);
+        } catch (RuntimeException ignored) {
+            // 幂等清理
+        }
+    }
+
+    /** K8S 模式 → 真实 ensure 出可达 mcpUrl。 */
+    @Test
+    void k8sModeBackendResolvesMcpUrlViaRealEnsure() {
+        BackendConfig k8s = k8sConfig(HOST, POD);
+        Optional<String> url = resolver.resolveMcpUrl(k8s);
+
+        assertThat(url).as("K8S 模式 resolve 出 mcpUrl（真实 ensure）").isPresent();
+        assertThat(url.get()).as("mcpUrl 为 http 形态").startsWith("http://");
+    }
+
+    /** 二次 resolve 同 logicalName → mcpUrl 不变（缓存命中，INV-K8SHOST-2）。 */
+    @Test
+    void secondResolveHitsCache() {
+        BackendConfig k8s = k8sConfig(HOST, POD);
+        String first = resolver.resolveMcpUrl(k8s).orElseThrow();
+        String second = resolver.resolveMcpUrl(k8s).orElseThrow();
+
+        assertThat(second).as("二次 resolve 缓存命中，mcpUrl 不变").isEqualTo(first);
+    }
+
+    /** 静态模式 → Optional.empty() 旁路（INV-K8SHOST-5）。 */
+    @Test
+    void staticModeBypassesResolve() {
+        BackendConfig stat = new BackendConfig("static-one", "http://127.0.0.1:8563", Protocol.STREAMABLE,
+                new BackendConfig.Auth(AuthMode.NONE, null, null, null),
+                5000, 30000, 5);
+        assertThat(resolver.resolveMcpUrl(stat)).as("静态模式旁路返 empty").isEmpty();
+    }
+
+    private static BackendConfig k8sConfig(String host, String pod) {
+        return new BackendConfig(LOGICAL, null, Protocol.STREAMABLE,
+                new BackendConfig.Auth(AuthMode.NONE, null, null, null),
+                5000, 30000, 5, host, pod, Source.STATIC);
+    }
+}
+```
+
+---
+
+## com/arthas/gateway/orchestration/K8sBackendResolverTest.java
+
+**文件**：`src/test/java/com/arthas/gateway/orchestration/K8sBackendResolverTest.java`
+
+```java
+package com.arthas.gateway.orchestration;
+
+import com.arthas.gateway.backend.AuthMode;
+import com.arthas.gateway.backend.BackendConfig;
+import com.arthas.gateway.backend.Protocol;
+import com.arthas.gateway.backend.Source;
+import com.arthas.gateway.config.GatewayProperties;
+import org.junit.jupiter.api.Test;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+/**
+ * 005 US2 K8sBackendResolver 懒 resolve 单测（T013，INV-K8SHOST-2/3/5）。
+ *
+ * <p>mock {@link ArthasProvisioner}（ensure 真实 K8S 行为由 {@code K8sBackendResolverContractIT} 覆盖），
+ * 验证<b>决策逻辑</b>：K8S 模式 ensure + 缓存、静态模式旁路、未知 host 报错。
+ */
+class K8sBackendResolverTest {
+
+    private static final Instant NOW = Instant.parse("2026-07-10T00:00:00Z");
+
+    /** K8S 模式 config（k8sHost + pod）。 */
+    private static BackendConfig k8sConfig(String host, String pod) {
+        return new BackendConfig("k", null, Protocol.STREAMABLE,
+                new BackendConfig.Auth(AuthMode.NONE, null, null, null),
+                5000, 30000, 5, host, pod, Source.STATIC);
+    }
+
+    /** 静态模式 config（url）。 */
+    private static BackendConfig staticConfig() {
+        return new BackendConfig("s", "http://127.0.0.1:8563", Protocol.STREAMABLE,
+                new BackendConfig.Auth(AuthMode.NONE, null, null, null),
+                5000, 30000, 5);
+    }
+
+    /** ready 终态 record（含 mcpUrl）。 */
+    private static OrchestrationRecord ready(String logical, String mcpUrl) {
+        return OrchestrationRecord.ensuring(logical, "debian", "demo-business", "default", NOW)
+                .ready(mcpUrl, "svc/30050", NOW);
+    }
+
+    private static GatewayProperties.K8sHost k8sHost(String name, String namespace) {
+        GatewayProperties.K8sHost h = new GatewayProperties.K8sHost();
+        h.setName(name);
+        h.setNamespace(namespace);
+        h.setKubeconfig("/tmp/kc.yaml");
+        return h;
+    }
+
+    private static K8sBackendResolver resolver(Map<String, ArthasProvisioner> p,
+                                                Map<String, GatewayProperties.K8sHost> h) {
+        return new K8sBackendResolver(p, h, Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    /** K8S 模式 → 调 ensure 返 mcpUrl（INV-K8SHOST-2 首次）。 */
+    @Test
+    void k8sModeResolvesMcpUrlViaEnsure() {
+        ArthasProvisioner p = mock(ArthasProvisioner.class);
+        when(p.ensure(any(), any(), any(), any()))
+                .thenReturn(ready("debian-demo-business", "http://1.2.3.4:30050"));
+
+        K8sBackendResolver r = resolver(Map.of("debian", p), Map.of("debian", k8sHost("debian", "default")));
+
+        assertThat(r.resolveMcpUrl(k8sConfig("debian", "demo-business")))
+                .as("K8S 模式 resolve 出 ensure 的 mcpUrl").contains("http://1.2.3.4:30050");
+    }
+
+    /** 同 logicalName 二次 → 缓存命中，ensure 仅调一次（INV-K8SHOST-2 幂等缓存）。 */
+    @Test
+    void k8sModeCachesByLogicalNameSecondResolveSkipsEnsure() {
+        ArthasProvisioner p = mock(ArthasProvisioner.class);
+        when(p.ensure(any(), any(), any(), any()))
+                .thenReturn(ready("debian-demo-business", "http://1.2.3.4:30050"));
+
+        K8sBackendResolver r = resolver(Map.of("debian", p), Map.of("debian", k8sHost("debian", "default")));
+        r.resolveMcpUrl(k8sConfig("debian", "demo-business"));
+        r.resolveMcpUrl(k8sConfig("debian", "demo-business")); // 二次
+
+        verify(p, times(1)).ensure(any(), any(), any(), any());
+    }
+
+    /** 静态模式 → Optional.empty() 旁路，不触 provisioner（INV-K8SHOST-5）。 */
+    @Test
+    void staticModeBypassesResolve() {
+        ArthasProvisioner p = mock(ArthasProvisioner.class);
+        K8sBackendResolver r = resolver(Map.of("debian", p), Map.of("debian", k8sHost("debian", "default")));
+
+        assertThat(r.resolveMcpUrl(staticConfig())).as("静态模式旁路返 empty").isEmpty();
+        verifyNoInteractions(p);
+    }
+
+    /** host 未在 k8s-hosts 配置 → unknown_k8s_host（INV-K8SHOST-3）。 */
+    @Test
+    void unknownHostThrowsUnknownK8sHost() {
+        ArthasProvisioner p = mock(ArthasProvisioner.class);
+        K8sBackendResolver r = resolver(Map.of("debian", p), Map.of("debian", k8sHost("debian", "default")));
+
+        assertThatThrownBy(() -> r.resolveMcpUrl(k8sConfig("ghost-cluster", "demo-business")))
+                .isInstanceOf(K8sBackendResolver.K8sResolveException.class)
+                .hasMessageContaining("unknown_k8s_host");
+    }
+
+    /** ensure 终态非 ready/reused（failed）→ ensure_failed 异常。 */
+    @Test
+    void ensureFailedThrowsEnsureFailed() {
+        ArthasProvisioner p = mock(ArthasProvisioner.class);
+        OrchestrationRecord failed = OrchestrationRecord.ensuring("debian-demo-business", "debian", "demo-business", "default", NOW)
+                .failed(new OrchestrationRecord.Error("locate_jvm", "no_jvm", "无 JVM"), NOW);
+        when(p.ensure(any(), any(), any(), any())).thenReturn(failed);
+
+        K8sBackendResolver r = resolver(Map.of("debian", p), Map.of("debian", k8sHost("debian", "default")));
+
+        assertThatThrownBy(() -> r.resolveMcpUrl(k8sConfig("debian", "demo-business")))
+                .isInstanceOf(K8sBackendResolver.K8sResolveException.class)
+                .hasMessageContaining("ensure_failed");
+    }
+}
+```
 
 ---
 
@@ -8079,6 +8826,385 @@ class K8sListToolsContractIT {
 }
 ```
 
+
+---
+
+## com/arthas/gateway/orchestration/NodePortExposerContractIT.java
+
+**文件**：`src/test/java/com/arthas/gateway/orchestration/NodePortExposerContractIT.java`
+
+```java
+package com.arthas.gateway.orchestration;
+
+import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.kubernetes.api.model.ServiceBuilder;
+import io.fabric8.kubernetes.api.model.ServicePort;
+import io.fabric8.kubernetes.client.KubernetesClient;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInfo;
+import org.junit.jupiter.api.TestInstance;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestPropertySource;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * 005 US1 NodePortExposer Service 复用契约 IT（T010，K-ENS-10/11/12，真实 k3s + 真实 demo-business pod，零桩）。
+ *
+ * <p>直接对真实 {@link KubernetesClient} 装配的 {@link NodePortExposer} 发起 {@code expose}，断言<b>真实 K8S</b>
+ * 行为（labelSelector 查询、PATCH type、NodePort 分配），覆盖单测（{@link NodePortExposerTest}）无法触及的
+ * 服务端 nodePort 分配与 type 变更副作用。
+ *
+ * <h3>覆盖断言</h3>
+ * <ul>
+ *   <li><b>K-ENS-10 复用</b>：预打 {@code arthas-mcp-gateway/target} label 的现有 NodePort Service → ensure 复用
+ *       （不新建独立 Service，result.serviceName = 业务 Service 名）。</li>
+ *   <li><b>K-ENS-11</b>：预打 label 的 ClusterIP Service → patch type=NodePort + 加端口，K8S 分配 nodePort。
+ *       复用业务 Service 名（非 arthas-mcp-）。</li>
+ *   <li><b>K-ENS-12 幂等</b>：二次 ensure → nodePort 不变 + 端口数量不重复增长。</li>
+ *   <li><b>K-ENS-10 回退</b>：无带 label Service → 回退新建独立 Service（arthas-mcp- 前缀，003 现状）。</li>
+ * </ul>
+ *
+ * <p><b>启用门禁</b>：kubeconfig 不可读 / demo-business pod 不存在 → {@link Assumptions#assumeTrue} 跳过（CI 无 k3s）。
+ *
+ * <p><b>隔离</b>：每测试用独立 logicalName + 业务 Service（@AfterEach 清理创建的 Service，不删测试床 demo-business pod）。
+ */
+@SpringBootTest
+@TestPropertySource(properties = "arthas-gateway.k8s.kubeconfig=test-env/k8s/kubeconfig/k3s-admin.yaml")
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class NodePortExposerContractIT {
+
+    private static final String NS = "default";
+    private static final String POD = "demo-business";
+
+    @Autowired
+    private KubernetesClient client;
+
+    /** 本测试创建的 Service 名（@AfterEach 幂等清理）。 */
+    private final Set<String> createdServices = new HashSet<>();
+
+    @BeforeAll
+    void requireClusterAndPod() {
+        Assumptions.assumeTrue(Files.isReadable(Path.of("test-env/k8s/kubeconfig/k3s-admin.yaml")),
+                "跳过：未找到可读 kubeconfig，需真实 k3s 测试床");
+        Assumptions.assumeTrue(client.pods().inNamespace(NS).withName(POD).get() != null,
+                "跳过：测试床 pod " + POD + " 不存在（NodePortExposer.labelPod 需真实 pod）");
+    }
+
+    @AfterEach
+    void cleanupServices() {
+        for (String name : createdServices) {
+            deleteServiceQuiet(name);
+        }
+        createdServices.clear();
+    }
+
+    /** K-ENS-10：预打 label 的现有 NodePort Service → ensure 复用（不新建独立 Service）。 */
+    @Test
+    void k_ens_10_reuseLabeledNodePortService() {
+        String logical = "contractit-reuse";
+        String svcName = createLabeledService("biz-contractit-reuse", "NodePort", 8563, 30050, logical);
+
+        NodePortExposer exposer = new NodePortExposer(client);
+        NodePortExposer.ExposeResult r = exposer.expose(NS, POD, logical, 8563);
+
+        assertThat(r.serviceName()).as("K-ENS-10：复用业务 Service（非 arthas-mcp- 新建）").isEqualTo(svcName);
+        assertThat(r.nodePort()).as("K-ENS-10：复用既有 nodePort").isEqualTo(30050);
+    }
+
+    /** K-ENS-11：预打 label 的 ClusterIP Service → patch type=NodePort + 加端口，K8S 分配 nodePort。 */
+    @Test
+    void k_ens_11_clusterIpServicePatchedToNodePort(TestInfo info) {
+        String logical = "contractit-cip";
+        String svcName = createLabeledService("biz-contractit-cip", "ClusterIP", 8563, null, logical);
+
+        NodePortExposer exposer = new NodePortExposer(client);
+        NodePortExposer.ExposeResult r = exposer.expose(NS, POD, logical, 8563);
+
+        assertThat(r.serviceName()).as("K-ENS-11：复用业务 Service（patch 而非新建）").isEqualTo(svcName);
+        assertThat(r.nodePort()).as("K-ENS-11：K8S 分配的 nodePort 在默认范围内").isBetween(30000, 32767);
+        Service after = client.services().inNamespace(NS).withName(svcName).get();
+        assertThat(after.getSpec().getType()).as("K-ENS-11：Service type 改为 NodePort").isEqualTo("NodePort");
+    }
+
+    /** K-ENS-12：二次 ensure → nodePort 不变 + 端口数量不重复增长（幂等）。 */
+    @Test
+    void k_ens_12_idempotentReuse() {
+        String logical = "contractit-idem";
+        String svcName = createLabeledService("biz-contractit-idem", "NodePort", 8563, 30052, logical);
+
+        NodePortExposer exposer = new NodePortExposer(client);
+        NodePortExposer.ExposeResult first = exposer.expose(NS, POD, logical, 8563);
+        NodePortExposer.ExposeResult second = exposer.expose(NS, POD, logical, 8563);
+
+        assertThat(second.nodePort()).as("K-ENS-12：二次 ensure nodePort 不变")
+                .isEqualTo(first.nodePort()).isEqualTo(30052);
+        Service after = client.services().inNamespace(NS).withName(svcName).get();
+        assertThat(after.getSpec().getPorts()).as("K-ENS-12：端口数量不重复增长").hasSize(1);
+        assertThat(after.getSpec().getPorts().stream().map(ServicePort::getNodePort).findFirst().orElse(null))
+                .as("K-ENS-12：端口仍含既有 nodePort").isEqualTo(30052);
+    }
+
+    /** K-ENS-10 回退：无带 label Service → 回退新建独立 Service（arthas-mcp- 前缀，003 现状）。 */
+    @Test
+    void k_ens_10_fallbackNewWhenNoLabel() {
+        String logical = "contractit-fallback"; // 不预创建带 label 的业务 Service
+        String expected = "arthas-mcp-" + NodePortExposer.sanitizeLabelValue(logical);
+        createdServices.add(expected);
+
+        NodePortExposer exposer = new NodePortExposer(client);
+        NodePortExposer.ExposeResult r = exposer.expose(NS, POD, logical, 8563);
+
+        assertThat(r.serviceName()).as("K-ENS-10 回退：新建独立 Service（arthas-mcp- 前缀）")
+                .startsWith("arthas-mcp-");
+        assertThat(r.nodePort()).as("K-ENS-10 回退：K8S 分配 nodePort").isBetween(30000, 32767);
+    }
+
+    // ===== fabric8 Service 夹具管理（真实集群操作） =====
+
+    /** 预创建带 label 的业务 Service（createOrReplace 幂等），登记待清理。 */
+    private String createLabeledService(String name, String type, int port, Integer nodePort, String logical) {
+        createdServices.add(name);
+        String label = NodePortExposer.sanitizeLabelValue(logical);
+        Service svc = new ServiceBuilder()
+                .withNewMetadata().withName(name).withNamespace(NS)
+                .addToLabels(NodePortExposer.TARGET_LABEL_KEY, label).endMetadata()
+                .withNewSpec().withType(type)
+                .addToSelector("app", "demo-business")
+                .addNewPort().withPort(port).withNewTargetPort(port).withNodePort(nodePort).endPort()
+                .endSpec()
+                .build();
+        client.services().inNamespace(NS).resource(svc).createOrReplace();
+        return name;
+    }
+
+    private void deleteServiceQuiet(String name) {
+        try {
+            client.services().inNamespace(NS).withName(name).delete();
+        } catch (RuntimeException ignored) {
+            // 幂等清理
+        }
+    }
+}
+```
+
+---
+
+## com/arthas/gateway/orchestration/NodePortExposerTest.java
+
+**文件**：`src/test/java/com/arthas/gateway/orchestration/NodePortExposerTest.java`
+
+```java
+package com.arthas.gateway.orchestration;
+
+import io.fabric8.kubernetes.api.model.Node;
+import io.fabric8.kubernetes.api.model.NodeBuilder;
+import io.fabric8.kubernetes.api.model.NodeList;
+import io.fabric8.kubernetes.api.model.NodeListBuilder;
+import io.fabric8.kubernetes.api.model.Pod;
+import io.fabric8.kubernetes.api.model.PodBuilder;
+import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.kubernetes.api.model.ServiceBuilder;
+import io.fabric8.kubernetes.api.model.ServiceList;
+import io.fabric8.kubernetes.api.model.ServiceListBuilder;
+import io.fabric8.kubernetes.client.KubernetesClient;
+import io.fabric8.kubernetes.client.server.mock.EnableKubernetesMockClient;
+import io.fabric8.kubernetes.client.server.mock.KubernetesMockServer;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * 005 US1 NodePortExposer Service 复用单测（T009，K-ENS-10/11/12）。
+ *
+ * <p>用 fabric8 官方 {@link KubernetesMockServer}（请求-响应模式，模拟真实 K8S API server）验证 NodePortExposer
+ * 的<b>决策逻辑</b>（findLabeledService 命中走 patch / 未命中回退新建 / 幂等复用）。NodePortExposer 直接持
+ * {@link KubernetesClient} 调 fluent 链，与 fabric8 紧耦合——Mockito 深桩对 fabric8 复杂泛型链不可靠，
+ * 故用 fabric8 官方 mock server（labelSelector 查询、PUT、POST 真实 HTTP 模拟）。真实 k3s 端到端（含
+ * NodePort 分配）由 {@code NodePortExposerContractIT}（T010）覆盖。
+ *
+ * <h3>覆盖断言</h3>
+ * <ul>
+ *   <li><b>K-ENS-10 复用</b>：带 {@code arthas-mcp-gateway/target} label 的现有 NodePort Service → ensure 复用
+ *       （result.serviceName = 业务 Service 名，非 {@code arthas-mcp-} 前缀，不新建独立 Service）。</li>
+ *   <li><b>K-ENS-11</b>：带 label 的 ClusterIP Service → patch（PUT type=NodePort + 加端口），复用业务 Service 名。</li>
+ *   <li><b>K-ENS-12 幂等</b>：已含同 targetPort → 复用既有 nodePort（二次 ensure ports 不变）。</li>
+ *   <li><b>K-ENS-10 回退</b>：无带 label Service → 回退新建独立 Service（{@code arthas-mcp-} 前缀，003 现状）。</li>
+ * </ul>
+ */
+@EnableKubernetesMockClient(crud = false)
+class NodePortExposerTest {
+
+    private static final String NS = "default";
+    private static final String POD = "demo-business";
+    private static final String LOGICAL = "debian-demo-business";
+    private static final String LABEL = NodePortExposer.sanitizeLabelValue(LOGICAL);
+    private static final int MCP_PORT = 8563;
+    private static final String NODE_IP = "192.168.31.92";
+
+    // fabric8 注解注入（PER_METHOD：每测试独立 mock server）
+    KubernetesMockServer mockServer;
+    KubernetesClient client;
+
+    /** K-ENS-10：带 label 的现有 NodePort Service → ensure 复用（不新建独立 Service）。 */
+    @Test
+    void k_ens_10_reuseExistingLabeledNodePortService() {
+        Service business = service("business-svc", LABEL, "NodePort", MCP_PORT, 32001);
+        registerCommon();
+        registerLabeledList(business);
+
+        NodePortExposer exposer = new NodePortExposer(client);
+        NodePortExposer.ExposeResult r = exposer.expose(NS, POD, LOGICAL, MCP_PORT);
+
+        assertThat(r.serviceName()).as("K-ENS-10：复用业务 Service 名（非 arthas-mcp- 前缀）")
+                .isEqualTo("business-svc");
+        assertThat(r.nodePort()).as("K-ENS-10：复用既有 nodePort").isEqualTo(32001);
+        assertThat(r.mcpUrl()).isEqualTo("http://" + NODE_IP + ":32001");
+    }
+
+    /** K-ENS-11：带 label 的 ClusterIP Service → patch（PUT type=NodePort + 加端口），复用业务 Service。 */
+    @Test
+    void k_ens_11_clusterIpServicePatchedToNodePort() {
+        Service clusterIp = service("business-svc", LABEL, "ClusterIP", MCP_PORT, null);
+        Service patched = service("business-svc", LABEL, "NodePort", MCP_PORT, 32005);
+        registerCommon();
+        registerLabeledList(clusterIp);
+        // patchServiceAddNodePort update：fabric8 update() 在 svc 无 resourceVersion 时先 GET 拿版本再 PUT。
+        mockServer.expect().get().withPath("/api/v1/namespaces/default/services/business-svc")
+                .andReturn(200, clusterIp).always();
+        // PUT（patch type=NodePort + 加端口）→ 返回 patch 后 Service（K8S 分配 nodePort=32005）
+        mockServer.expect().put().withPath("/api/v1/namespaces/default/services/business-svc")
+                .andReturn(200, patched).always();
+
+        NodePortExposer exposer = new NodePortExposer(client);
+        NodePortExposer.ExposeResult r = exposer.expose(NS, POD, LOGICAL, MCP_PORT);
+
+        assertThat(r.serviceName()).as("K-ENS-11：复用业务 Service 名（patch 而非新建）")
+                .isEqualTo("business-svc");
+        assertThat(r.nodePort()).as("K-ENS-11：patch 后分配的 nodePort").isEqualTo(32005);
+    }
+
+    /** K-ENS-12：已含同 targetPort 的 NodePort Service → 复用既有 nodePort（二次 ensure ports 不变）。 */
+    @Test
+    void k_ens_12_idempotentReuseSameNodePort() {
+        Service business = service("business-svc", LABEL, "NodePort", MCP_PORT, 32001);
+        registerCommon();
+        registerLabeledList(business);
+
+        NodePortExposer exposer = new NodePortExposer(client);
+        NodePortExposer.ExposeResult first = exposer.expose(NS, POD, LOGICAL, MCP_PORT);
+        NodePortExposer.ExposeResult second = exposer.expose(NS, POD, LOGICAL, MCP_PORT);
+
+        assertThat(second.serviceName()).as("K-ENS-12：复用业务 Service（非新建 arthas-mcp-）")
+                .isEqualTo("business-svc").isEqualTo(first.serviceName());
+        assertThat(second.nodePort()).as("K-ENS-12：二次 ensure nodePort 不变")
+                .isEqualTo(32001).isEqualTo(first.nodePort());
+    }
+
+    /** K-ENS-10 回退：无带 label 的 Service → 回退新建独立 Service（arthas-mcp- 前缀，003 现状）。 */
+    @Test
+    void k_ens_10_fallbackNewServiceWhenNoLabel() {
+        Service created = service("arthas-mcp-debian-demo-business", LABEL, "NodePort", MCP_PORT, 32010);
+        registerCommon();
+        registerLabeledList(); // 空列表 → 触发回退
+        // ensureNodePortService（回退）：POST create → created；GET withName → created
+        mockServer.expect().post().withPath("/api/v1/namespaces/default/services")
+                .andReturn(201, created).always();
+        mockServer.expect().get().withPath("/api/v1/namespaces/default/services/arthas-mcp-debian-demo-business")
+                .andReturn(200, created).always();
+
+        NodePortExposer exposer = new NodePortExposer(client);
+        NodePortExposer.ExposeResult r = exposer.expose(NS, POD, LOGICAL, MCP_PORT);
+
+        assertThat(r.serviceName()).as("K-ENS-10 回退：新建独立 Service（arthas-mcp- 前缀）")
+                .startsWith("arthas-mcp-").contains("debian-demo-business");
+        assertThat(r.nodePort()).isEqualTo(32010);
+    }
+
+    /** pod 不存在 → IllegalStateException（既有行为，003 兼容）。 */
+    @Test
+    void exposeThrowsWhenPodMissing() {
+        mockServer.expect().get().withPath("/api/v1/namespaces/default/pods/demo-business")
+                .andReturn(404, null).always();
+
+        NodePortExposer exposer = new NodePortExposer(client);
+
+        assertThatThrownBy(() -> exposer.expose(NS, POD, LOGICAL, MCP_PORT))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(POD);
+    }
+
+    // ===== mock server 端点注册辅助 =====
+
+    /** 注册公共端点：pod get/update（labelPod）、nodes list（resolveNodeIp）。 */
+    private void registerCommon() {
+        mockServer.expect().get().withPath("/api/v1/namespaces/default/pods/demo-business")
+                .andReturn(200, podWithoutLabel()).always();
+        // labelPod update（pod 无 label → 打 label；PUT 返回 pod）
+        mockServer.expect().put().withPath("/api/v1/namespaces/default/pods/demo-business")
+                .andReturn(200, podWithoutLabel()).always();
+        mockServer.expect().get().withPath("/api/v1/nodes")
+                .andReturn(200, new NodeListBuilder().withItems(nodeWithInternalIp(NODE_IP)).build()).always();
+    }
+
+    /**
+     * 注册 labelSelector list 端点（findLabeledService 查询）。
+     *
+     * <p>fabric8 mock server 用精确匹配（path + query）。fabric8 client 发的 labelSelector 请求 path 为
+     * {@code /services?labelSelector=arthas-mcp-gateway%2Ftarget%3D<value>}（{@code /}→{@code %2F}，
+     * {@code =}→{@code %3D}），故 withPath 须含完整 encoded query。
+     *
+     * @param services 命中的带 label Service 列表（空 → findLabeledService 返空，触发回退）
+     */
+    private void registerLabeledList(Service... services) {
+        ServiceList list = new ServiceListBuilder().withItems(services).build();
+        String path = "/api/v1/namespaces/default/services?labelSelector="
+                + "arthas-mcp-gateway%2Ftarget%3D" + LABEL;
+        mockServer.expect().get().withPath(path).andReturn(200, list).always();
+    }
+
+    // ===== fabric8 model 构造辅助 =====
+
+    private static Service service(String name, String label, String type, int port, Integer nodePort) {
+        return new ServiceBuilder()
+                .withNewMetadata().withName(name).withNamespace(NS)
+                .addToLabels(NodePortExposer.TARGET_LABEL_KEY, label).endMetadata()
+                .withNewSpec().withType(type)
+                .addNewPort().withPort(port).withNewTargetPort(port)
+                .withNodePort(nodePort).endPort()
+                .endSpec()
+                .build();
+    }
+
+    private static Pod podWithoutLabel() {
+        return new PodBuilder()
+                .withNewMetadata().withName(POD).withNamespace(NS).endMetadata()
+                .withNewSpec().endSpec()
+                .build();
+    }
+
+    private static Node nodeWithInternalIp(String ip) {
+        return new NodeBuilder()
+                .withNewMetadata().withName("node1").endMetadata()
+                .withNewStatus()
+                .addNewAddress().withType("InternalIP").withAddress(ip).endAddress()
+                .endStatus()
+                .build();
+    }
+}
+```
 
 ---
 
@@ -9126,6 +10252,80 @@ class TaskStoreTest {
 }
 ```
 
+
+---
+
+## com/arthas/gateway/orchestration/TestArthasLauncher.java
+
+**文件**：`src/test/java/com/arthas/gateway/orchestration/TestArthasLauncher.java`
+
+```java
+package com.arthas.gateway.orchestration;
+
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * 005 US3 测试用 {@link ArthasLauncher} fixture（T022，<b>真实实现非 mock</b>，INV-LAUNCHER-5）。
+ *
+ * <p>验证 SPI 委托机制（{@code ArthasProvisioner} 委托 launcher）与 @Primary 覆盖（用户自定义实现覆盖 Default，
+ * INV-LAUNCHER-3）。<b>不</b>带 {@code @Component}——避免污染所有 SpringBootTest IT（ArthasProvisionerIT 等期望
+ * DefaultArthasLauncher）；@Primary 装配由 {@code CustomLauncherContractIT}（T024）的 {@code @TestConfiguration} 显式注入。
+ * T023 单测直接 new 或 mock（不经 Spring）。
+ *
+ * <p><b>探针字段</b>（非 mock 桩，而是真实记录被调用的证据）：
+ * <ul>
+ *   <li>{@link #locateCalls()}：locatePid 被调次数（验证委托）。</li>
+ *   <li>{@link #lastContext()}：最近传入的 LaunchContext（验证契约字段）。</li>
+ *   <li>{@link #lastPid()}：startArthas 收到的 pid（验证委托传递 pid）。</li>
+ *   <li>{@link #failOnStart()}：注入真实故障（LaunchException → ProvisionException 映射，INV-LAUNCHER-4）。</li>
+ * </ul>
+ */
+public class TestArthasLauncher implements ArthasLauncher {
+
+    /** 固定定位的 PID（验证 ArthasProvisioner 用 launcher 返值，非硬编码）。 */
+    public static final long FIXED_PID = 12345L;
+
+    private final AtomicLong locateCalls = new AtomicLong();
+    private final AtomicReference<LaunchContext> lastCtx = new AtomicReference<>();
+    private final AtomicLong lastPid = new AtomicLong(-1);
+    private volatile boolean failOnStart;
+
+    /** 注入真实故障：startArthas 抛 LaunchException（attach_failed@start_arthas，INV-LAUNCHER-4）。 */
+    public void failOnStart() {
+        this.failOnStart = true;
+    }
+
+    public long locateCalls() {
+        return locateCalls.get();
+    }
+
+    public LaunchContext lastContext() {
+        return lastCtx.get();
+    }
+
+    public long lastPid() {
+        return lastPid.get();
+    }
+
+    @Override
+    public long locatePid(LaunchContext ctx) {
+        locateCalls.incrementAndGet();
+        lastCtx.set(ctx);
+        return FIXED_PID;
+    }
+
+    @Override
+    public void startArthas(LaunchContext ctx, long pid) {
+        lastCtx.set(ctx);
+        lastPid.set(pid);
+        if (failOnStart) {
+            throw new LaunchException(new OrchestrationRecord.Error(
+                    "start_arthas", "attach_failed", "TestArthasLauncher 注入真实故障"));
+        }
+    }
+}
+```
 
 ---
 

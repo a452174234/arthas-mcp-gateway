@@ -2074,6 +2074,20 @@ prod：vite build 产物内嵌 JAR，Spring Boot 服务 SPA + /admin
 
 ---
 
+## `docs/superpowers/specs/2026-07-10-k8s-orchestration-iteration-design.md`
+
+> **主题**：005 K8S 编排能力迭代的 brainstorming 设计产出，针对 003 落地后的三个适配缺口（Service 膨胀、K8S 模式后端配置、容器 JDK 适配），将 Service 模式、后端配置、JDK 启动改造为配置驱动 + SPI 扩展点，用户改很少代码即可适配自身 K8S 环境。
+>
+> **要点**：
+> - ① **Service 复用**：NodePort 暴露从「每次新建独立 `arthas-mcp-<logical>` Service」改为优先复用带 `arthas-mcp-gateway/target=<logical>` label 的现有 Service（label 标记在 Service 上），自动 patch `type=NodePort` + 加端口项（同 targetPort 幂等复用 nodePort），找不到回退新建独立 Service（契约新增 K-ENS-10/11，K-ENS-2 幂等不破）。
+> - ② **后端配置 K8S 场景**：新增 `K8sHost` 配置实体（name + kubeconfig + namespace，配在 `arthas-gateway.k8s-hosts`，管远端 Linux 集群入口）；`BackendConfig` record 增 `k8sHost`+`pod` 字段，与静态 `url` 互斥（紧凑构造器校验 url/k8sHost 二选一 + k8sHost 非空时 pod 必填），`equals/hashCode` 纳入新字段。
+> - ③ **BackendResolver 懒 resolve**：接口在 gateway-core（backend 包）定义、零 K8S 依赖；`K8sBackendResolver` 在 orchestration 实现，启动期按 `k8s-hosts` 为每个 host 建独立 `KubernetesClient`+`ArthasProvisioner`（`Map<hostName, provisioner>`，MVP 不池化），首次路由该 target 时按 host 取 provisioner 调 `ensure` 出 mcpUrl 并按 logicalName 缓存；静态 url 模式返 `Optional.empty()` 旁路；装配用 `Optional<BackendResolver>`，无 K8S 时 K8S 模式 backend 路由抛 `no_k8s_resolver`。
+> - ④ **ArthasLauncher SPI**：策略接口（`locatePid` + `startArthas` + `LaunchContext` record + `LaunchException`），`DefaultArthasLauncher` 外移 003 现状逻辑（`jps -q | head -1` / `java -jar arthas-boot.jar` 标准参数，默认行为 = 003 不破 K-ENS-4/5）；用户写 `@Component @Primary` 实现类自由定制 javaPath + 完整命令模板，`K8sOrchestrationConfig` 用 `@ConditionalOnMissingBean(ArthasLauncher.class)` 装配默认实现让其退让；`ArthasProvisioner` 注入 launcher 委托，删除硬编码 `locateJvm`/`startArthas`。
+> - ⑤ **不变量守护**：gateway-core 零 K8S 依赖由 ArchUnit 规则 1/2 守护（新 `BackendResolver` 接口放 gateway-core、`K8sBackendResolver`/`DefaultArthasLauncher` 实现放 orchestration）；003 既有契约（K-ATOMIC-1 原子幂等、K-ENS-2/4/5）全部不破，作回归对照基线，patch Service 失败仍抛 `nodeport_alloc_failed` 不注册。
+> - ⑥ **TDD 真实环境 + 归档**：SPI 三件套测试含 test fixture 真实实现 `TestArthasLauncher`（非 mock，固定返 pid `12345` + 记录 `LaunchContext` 验证委托/替换/契约），Service patch 与 K8S 后端 resolve 用真实 k3s 端到端验证；归档新建 `specs/005-k8s-orchestration-iteration/`（spec/plan/research/data-model/contracts/quickstart/tasks 全套），003 契约文件追加 K-ENS-10/11。
+
+---
+
 ## `docs/code-review/2026-06-20-business-code-review.md`
 
 ```markdown

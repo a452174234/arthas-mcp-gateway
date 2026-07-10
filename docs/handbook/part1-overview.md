@@ -31,6 +31,7 @@ arthas MCP 网关（`arthas-mcp-gateway`）作为 **MCP 反向代理 + 编排层
 - **配置热重载**：改 `config/backends.yaml` 免重启增删目标（WatchService 监听 + 原子替换注册表）。
 - **K8S 编排**（003）：对指定 K8S pod 一键拉起 arthas MCP（上传 arthas + 启动 + NodePort 暴露 + 动态纳管 + 健康检查），诊断结果明确来自该 pod JVM。
 - **Web 管理面**（004）：浏览器 portal 做 CRUD + 任务列表查询 + 结果导出。
+- **K8S 编排能力迭代**（005，003 的能力增强，**不增减工具**）：三点生产适配——① ensure 的 NodePort 暴露优先**复用带 `arthas-mcp-gateway/target` label 的现有业务 Service**（patch type+端口），找不到回退新建；② 后端配置支持 **K8S 模式**（`k8sHost`+`pod`，与 `url` 互斥），首次路由**懒 resolve**（ensure + 缓存 mcpUrl）；③ **JDK 适配 SPI**（`ArthasLauncher` 策略接口，用户 `@Primary` 实现定制 javaPath/命令模板，适配容器独立 JDK 部署）。零 gateway-core K8S 依赖不变，003 既有契约全不破。
 
 ### 1.3 不做什么（边界）
 
@@ -145,7 +146,7 @@ arthas MCP 网关（`arthas-mcp-gateway`）作为 **MCP 反向代理 + 编排层
 
 ---
 
-## 第 3 章 能力全景：38 工具 + 4 特性
+## 第 3 章 能力全景：38 工具 + 5 特性
 
 ### 3.1 工具分类（`tools/list` 返回 38）
 
@@ -160,7 +161,9 @@ arthas MCP 网关（`arthas-mcp-gateway`）作为 **MCP 反向代理 + 编排层
 
 完整 38 工具名清单见 [part6-config-appendix.md §工具清单](./part6-config-appendix.md)。
 
-### 3.2 4 特性矩阵
+> **005 不增减工具**：005 是 003 K8S 编排的**能力增强迭代**（Service 复用 / K8S 模式后端配置 / JDK 适配 SPI），仅增强编排能力与寻址灵活性，工具总数恒为 38（SC-001 端到端 + 346 测试全绿，003 既有契约全部不破）。
+
+### 3.2 特性矩阵（001-005）
 
 | 特性 | 优先级 | 核心价值 | 关键产出 |
 |------|--------|----------|----------|
@@ -168,6 +171,7 @@ arthas MCP 网关（`arthas-mcp-gateway`）作为 **MCP 反向代理 + 编排层
 | **002 韧性整改** | —（001 的代码评审整改） | 关闭竞态/槽泄漏/熔断线程安全/异步驱动熔断/原子握手/退役宽限/null 参数/读放大/全局背压/凭据脱敏/单一事实源/JSON 单例/配置校验/死代码 | 15 项发现修复，FR-016 全局回归不破 |
 | **003 K8S 编排** | P1（003 的 MVP） | 远端 K8S pod 一键启 arthas + NodePort 暴露 + 动态纳管 | 3 工具、ensure 原子幂等、SC-001 端到端 |
 | **004 portal 管理面** | P3（003 的 portal 子集，v2 Web） | 浏览器 CRUD + 任务列表 + 结果导出 | `/admin` API + Vue SPA、4 能力开关 |
+| **005 K8S 编排能力迭代** | —（003 的生产适配迭代，**不增减工具**） | Service 复用（patch type+端口）+ K8S 模式后端配置（懒 resolve）+ JDK 适配 SPI | K-ENS-10/11/12 + INV-K8SHOST-1~5 + INV-LAUNCHER-1~5、38 工具不变、003 契约全不破 |
 
 ### 3.3 用户视角的能力清单
 
@@ -188,6 +192,11 @@ arthas MCP 网关（`arthas-mcp-gateway`）作为 **MCP 反向代理 + 编排层
 - 列 pod：`k8s.list-pods namespace=default` → pod 清单含 hasJvm/hasShell。
 - 一键纳管：`k8s.ensure-arthas-mcp server=debian pod=demo-business` → 上传 arthas + 启动 + NodePort 暴露 + 注册 → `{target, status:ready, mcpUrl}`。
 - 随后用 `target=debian-demo-business` 调诊断工具，结果来自该 pod JVM。
+
+**编排能力增强（005，003 迭代，工具数不变）**：
+- **复用业务 Service**：运维在业务 Service 上预打 `arthas-mcp-gateway/target=<logical>` label，ensure 优先 **patch** 该 Service（改 type=NodePort + 补端口）而非新建独立 Service（K-ENS-10/11/12），找不到回退新建（向后兼容）。
+- **K8S 模式后端配置**：`backends.yaml` 声明 `k8sHost: <host名> + pod: <pod名>`（与 `url` 互斥），首次路由**懒 resolve**（ensure + 缓存 mcpUrl，INV-K8SHOST-2）；多 K8S Host 经 `arthas-gateway.k8s-hosts` 声明（每 host 独立 kubeconfig + provisioner）。
+- **自定义 JDK 启动**：用户写 `@Primary ArthasLauncher` 实现类覆盖默认（`DefaultArthasLauncher`），定制 `javaPath` + 完整命令模板，适配容器独立 JDK 部署（INV-LAUNCHER-3）。
 
 ---
 
@@ -313,13 +322,13 @@ arthas MCP 网关（`arthas-mcp-gateway`）作为 **MCP 反向代理 + 编排层
 | 包 | 职责 | 特性 | K8S 依赖 |
 |----|------|------|----------|
 | `config/` | 装配（组合根）：Spring `@Configuration` + `@ConfigurationProperties` | 全部 | 装配 orchestration bean（组合根允许） |
-| `backend/` | 后端管理：`BackendConfig`/`Entry`/`Registry`/`Holder`/`Watcher`/`Reloader`/`Composer`/`DynamicBackendStore`/`CircuitBreaker`/`HttpBackendClient`/`BackendConfigLoader` + 域异常 | 001/002/003 | 零（gateway-core） |
+| `backend/` | 后端管理：`BackendConfig`/`Entry`/`Registry`/`Holder`/`Watcher`/`Reloader`/`Composer`/`DynamicBackendStore`/`CircuitBreaker`/`HttpBackendClient`/`BackendConfigLoader`/`BackendResolver`(005 接口)/`BackendEntryFactory` + 域异常 | 001/002/003/005 | 零（gateway-core） |
 | `handler/` | MCP tools/call 路由：`ToolsCallRouter`/`GatewayToolHandlers`/`DiagnosticRequest`/`McpJson`/`McpErrorCodes` | 001 | 零 |
 | `tool/` | 工具元数据：`StaticToolRegistry`/`ExposedTool`/`RoutingMode`/`TaskSupport` | 001 | 零 |
 | `task/` | 异步任务：`AsyncTaskExecutor`/`TaskStore`/`GatewayTask`/`TaskState`/`TaskError`/`GlobalConcurrencyLimitException` | 001/002 | 零 |
 | `auth/` | 认证：`BackendAuthCustomizer`（出站头）/`GatewayAuthenticator`/`NoopGatewayAuthenticator`（入站） | 001 | 零 |
 | `obs/` | 可观测：`BackendRegistryHealthIndicator` | 001 | 零 |
-| `orchestration/` | K8S 编排：`K8sClientFactory`/`PodExplorer`/`ArthasProvisioner`/`NodePortExposer`/`OrchestrationRecord`/`K8sToolHandlers`/... | 003 | **依赖 fabric8** |
+| `orchestration/` | K8S 编排：`K8sClientFactory`/`PodExplorer`/`ArthasProvisioner`/`NodePortExposer`/`OrchestrationRecord`/`K8sToolHandlers`/`K8sBackendResolver`(005)/`ArthasLauncher`+`DefaultArthasLauncher`(005 SPI)/... | 003/005 | **依赖 fabric8** |
 | `admin/` | portal 后端：`backend/`（CRUD）+ `task/`（导出/列表）+ `SpaConfig` + `AdminExceptionHandler` | 004 | 零 |
 
 **包边界守护**（`PackageBoundaryTest.java`）：诊断核心（backend/handler/tool/task/auth/obs）→ 不得依赖 orchestration / admin / fabric8 / io.kubernetes。`config`（组合根）+ `orchestration` + `admin` 不受此限。

@@ -51,13 +51,19 @@ arthas-gateway:
     node-port-range: 30000-32767
     # ensure 全流程超时（注入 + 暴露 + 健康检查 + 注册），须 > arthas attach + 健康轮询
     ensure-timeout: 5m
-  # K8S Host 列表（005 特性）：远端 Linux K8S 集群入口声明（BackendConfig K8S 模式 k8s-host 引用 name）。
-  # 每 host 独立 kubeconfig + namespace；重启生效（热重载后置）。MVP 默认空（K8S 模式 backend 未配置时用 k8s.kubeconfig 单集群）。
-  # 示例：
+  # K8S Host 配置文件（006 特性）：独立 config/k8s-hosts.yaml（仿 backends.yaml + WatchService 热重载，波2）。
+  # 文件不存在时回退下方内联 k8s-hosts（005 兼容）。portal CRUD（波3）也写此文件 → 触发热重载（统一管道）。
+  k8s-hosts-file: config/k8s-hosts.yaml
+  # K8S Host 内联回退（005 既有）：config/k8s-hosts.yaml 不存在时用此。每 host 独立 kubeconfig + namespace，或 ssh 引导（006 波1）。
+  # 示例（ssh 引导，006 波1——只配 master IP+root+密码就连）：
   # k8s-hosts:
-  #   - name: debian-prod
-  #     kubeconfig: test-env/k8s/kubeconfig/k3s-admin.yaml
+  #   - name: corp-prod
   #     namespace: default
+  #     ssh:
+  #       host: 10.0.1.5
+  #       user: root
+  #       password: ${K8S_SSH_PASSWORD}
+  #       kubeconfig-remote-path: /etc/kubernetes/admin.conf
   k8s-hosts: []
   # portal 管理面能力开关（004 特性，research.md R9：@ConditionalOnProperty 按需启用，默认开）
   admin:

@@ -258,10 +258,15 @@ public class GatewayProperties {
     public static class K8sHost {
         /** host 逻辑名（跨 host 唯一，BackendConfig.k8sHost 引用此名）。 */
         private String name;
-        /** kubeconfig 文件路径（独立集群凭证；启动期校验可读）。 */
+        /** kubeconfig 文件路径（本地凭证；与 {@link #ssh} 互斥，005 既有模式）。 */
         private String kubeconfig;
         /** 默认 namespace（缺省 {@code default}）。 */
         private String namespace = "default";
+        /**
+         * SSH 引导（006 特性）：远端 master SSH 凭证 + kubeconfig 远端路径。与 {@link #kubeconfig}（本地文件）互斥。
+         * 用户只配 master IP+root+密码，网关 SSH 取 admin kubeconfig，免处理 K8S 鉴权。
+         */
+        private Ssh ssh;
 
         public String getName() {
             return name;
@@ -285,6 +290,114 @@ public class GatewayProperties {
 
         public void setNamespace(String namespace) {
             this.namespace = namespace;
+        }
+
+        public Ssh getSsh() {
+            return ssh;
+        }
+
+        public void setSsh(Ssh ssh) {
+            this.ssh = ssh;
+        }
+
+        /**
+         * SSH 引导参数（006 特性，{@code arthas-gateway.k8s-hosts[].ssh}）。
+         *
+         * <p>网关经 SSH 登 master 读取 {@link #kubeconfigRemotePath} 指向的 admin kubeconfig
+         * （标准 K8S {@code /etc/kubernetes/admin.conf}；k3s {@code /etc/rancher/k3s/k3s.yaml}），构造 fabric8 client。
+         * 实体见 [data-model.md §3](../../specs/006-k8s-host-remote-access/data-model.md)。
+         */
+        public static class Ssh {
+            /** master/control-plane 节点 IP（必填）。 */
+            private String host;
+            /** SSH 端口（缺省 22）。 */
+            private int port = 22;
+            /** SSH 用户（必填，通常 root）。 */
+            private String user;
+            /** SSH 密码（与 privateKey 二选一；走 {@code ${ENV}} 占位符或 portal AES-GCM 加密值）。 */
+            private String password;
+            /** SSH 私钥（内容或路径；与 password 二选一）。 */
+            private String privateKey;
+            /** 私钥口令（可选）。 */
+            private String passphrase;
+            /** 远端 kubeconfig 路径（必填；标准 K8S /etc/kubernetes/admin.conf；k3s /etc/rancher/k3s/k3s.yaml）。 */
+            private String kubeconfigRemotePath;
+            /** kubeconfig server 替换值（可选；server 不可达时，如 127.0.0.1/VIP/不可解析域名）。 */
+            private String serverOverride;
+            /** 跳过 TLS 证书校验（可选；apiserver SAN 不含连接地址时兜底，默认 false，开启需知中间人风险）。 */
+            private boolean insecureSkipTlsVerify;
+
+            public String getHost() {
+                return host;
+            }
+
+            public void setHost(String host) {
+                this.host = host;
+            }
+
+            public int getPort() {
+                return port;
+            }
+
+            public void setPort(int port) {
+                this.port = port;
+            }
+
+            public String getUser() {
+                return user;
+            }
+
+            public void setUser(String user) {
+                this.user = user;
+            }
+
+            public String getPassword() {
+                return password;
+            }
+
+            public void setPassword(String password) {
+                this.password = password;
+            }
+
+            public String getPrivateKey() {
+                return privateKey;
+            }
+
+            public void setPrivateKey(String privateKey) {
+                this.privateKey = privateKey;
+            }
+
+            public String getPassphrase() {
+                return passphrase;
+            }
+
+            public void setPassphrase(String passphrase) {
+                this.passphrase = passphrase;
+            }
+
+            public String getKubeconfigRemotePath() {
+                return kubeconfigRemotePath;
+            }
+
+            public void setKubeconfigRemotePath(String kubeconfigRemotePath) {
+                this.kubeconfigRemotePath = kubeconfigRemotePath;
+            }
+
+            public String getServerOverride() {
+                return serverOverride;
+            }
+
+            public void setServerOverride(String serverOverride) {
+                this.serverOverride = serverOverride;
+            }
+
+            public boolean isInsecureSkipTlsVerify() {
+                return insecureSkipTlsVerify;
+            }
+
+            public void setInsecureSkipTlsVerify(boolean insecureSkipTlsVerify) {
+                this.insecureSkipTlsVerify = insecureSkipTlsVerify;
+            }
         }
     }
 

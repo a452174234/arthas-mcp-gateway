@@ -110,6 +110,19 @@
             <version>1.28.0</version>
         </dependency>
 
+        <!--
+            SSH 引导接入（006 特性，波1，research.md R1）：com.hierynomus:sshj。
+            用户只有 root SSH 凭证时，SshKubeconfigFetcher 经 sshj 登 master 取 admin kubeconfig
+            （/etc/kubernetes/admin.conf 或 /etc/rancher/k3s/k3s.yaml），免用户处理 K8S 鉴权。
+            纯 Java 库（宪法原则六），支持 Ed25519/现代算法（传递依赖 BouncyCastle）。
+            仅 orchestration 包使用（gateway-core 零 SSH 依赖，ArchUnit T033 守护）。
+        -->
+        <dependency>
+            <groupId>com.hierynomus</groupId>
+            <artifactId>sshj</artifactId>
+            <version>0.38.0</version>
+        </dependency>
+
         <!-- 配置外化元数据（@ConfigurationProperties） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -149,6 +162,18 @@
             <groupId>io.fabric8</groupId>
             <artifactId>kubernetes-server-mock</artifactId>
             <version>7.6.1</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+            SSH 真实协议测试（006 特性，波1，research.md R10）：Apache MINA SSHD embedded server。
+            SshKubeconfigFetcherTest 用它起 embedded SSH server（真实协议握手，非桩），验证
+            password auth + exec cat + 故障矩阵（错密码 ssh_auth_failed / 停 server ssh_unreachable /
+            错路径 kubeconfig_not_found）。test-scope，不进生产包；与 Spring Boot 4.1.0 / Java 21 兼容。
+        -->
+        <dependency>
+            <groupId>org.apache.sshd</groupId>
+            <artifactId>sshd-core</artifactId>
+            <version>2.13.2</version>
             <scope>test</scope>
         </dependency>
 

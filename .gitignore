@@ -38,6 +38,10 @@ build/
 config/backends-local.yaml
 config/backends.*.local.yaml
 
+# === K8S Host 配置（006）：含 SSH 凭证（portal AES-GCM 加密），不入库；缺文件时 application.yml 内联回退（005 兼容） ===
+config/k8s-hosts.yaml
+config/k8s-hosts-local.yaml
+
 # === 运行时动态配置（SmokeDemoLauncher 每次启动按动态端口重写，不入库） ===
 config/backends-runtime.yaml
 

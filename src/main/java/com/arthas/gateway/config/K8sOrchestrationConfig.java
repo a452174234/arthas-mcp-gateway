@@ -7,6 +7,7 @@ import com.arthas.gateway.orchestration.ArthasProvisioner;
 import com.arthas.gateway.orchestration.DefaultArthasLauncher;
 import com.arthas.gateway.orchestration.K8sBackendResolver;
 import com.arthas.gateway.orchestration.K8sClientFactory;
+import com.arthas.gateway.orchestration.SshBootstrap;
 import com.arthas.gateway.orchestration.K8sEnabledCondition;
 import com.arthas.gateway.orchestration.K8sPodExplorer;
 import com.arthas.gateway.orchestration.K8sToolHandlers;
@@ -113,7 +114,9 @@ public class K8sOrchestrationConfig {
         Map<String, GatewayProperties.K8sHost> hosts = new LinkedHashMap<>();
         List<KubernetesClient> clients = new ArrayList<>();
         for (GatewayProperties.K8sHost h : props.getK8sHosts()) {
-            KubernetesClient c = K8sClientFactory.buildFromKubeconfig(h.getKubeconfig());
+            KubernetesClient c = h.getSsh() != null
+                    ? K8sClientFactory.buildFromSsh(toSshBootstrap(h.getSsh()))
+                    : K8sClientFactory.buildFromKubeconfig(h.getKubeconfig());
             clients.add(c);
             NodePortExposer exposer = new NodePortExposer(c);
             ArthasProvisioner p = new ArthasProvisioner(c, exposer, dynamicStore, recordStore,
@@ -126,6 +129,17 @@ public class K8sOrchestrationConfig {
         resolver.setOwnedClients(clients);
         log.info("K8sBackendResolver 装配：{} host(s) → {}", provisioners.size(), provisioners.keySet());
         return resolver;
+    }
+
+    /**
+     * K8sHost.Ssh（配置绑定 POJO）→ {@link SshBootstrap}（record，传 {@link K8sClientFactory#buildFromSsh}）。
+     *
+     * <p>006 波1（T011）：剥离 Spring 配置类，orchestration 层用 record（便于测试 + 无 Spring 依赖）。
+     */
+    private static SshBootstrap toSshBootstrap(GatewayProperties.K8sHost.Ssh ssh) {
+        return new SshBootstrap(ssh.getHost(), ssh.getPort(), ssh.getUser(),
+                ssh.getPassword(), ssh.getPrivateKey(), ssh.getPassphrase(),
+                ssh.getKubeconfigRemotePath(), ssh.getServerOverride(), ssh.isInsecureSkipTlsVerify());
     }
 
     /** 3 个编排工具的本地处理器（handler 自带闭包，不经 ToolsCallRouter）。 */

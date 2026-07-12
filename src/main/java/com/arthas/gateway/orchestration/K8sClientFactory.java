@@ -65,6 +65,40 @@ public final class K8sClientFactory implements AutoCloseable {
         return new KubernetesClientBuilder().withConfig(config).build();
     }
 
+    /**
+     * SSH 引导构造 fabric8 client（006 波1，T010）：SSH 登 master 取 kubeconfig 文本 → 构造 client。
+     *
+     * <p>用户只配 master IP+root+密码，{@link SshKubeconfigFetcher} 取 admin kubeconfig 文本，
+     * 本方法构造 client（可选 serverOverride 替换不可达 server、insecureSkipTlsVerify 跳过 SAN 校验）。
+     * SSH 仅一次性引导（{@code K8sHostStore} 首取缓存，research.md R3）。
+     *
+     * @param ssh SSH 引导参数
+     * @return 已构建的 client（调用方负责关闭）
+     */
+    public static KubernetesClient buildFromSsh(SshBootstrap ssh) {
+        String content = new SshKubeconfigFetcher().fetchKubeconfig(ssh);
+        return new KubernetesClientBuilder().withConfig(buildConfig(ssh, content)).build();
+    }
+
+    /**
+     * 由 kubeconfig 文本构造 fabric8 {@link Config}（006 波1，T010）：可选 {@code serverOverride} 替换 server +
+     * {@code insecureSkipTlsVerify} 跳过 TLS 校验（INV-SSH-4）。
+     *
+     * <p>包级可见——单测注入 kubeconfig 文本断言 Config 字段（隔离 SSH 与 client build：SSH 真实性由
+     * {@link SshKubeconfigFetcherTest} 的 MINA SSHD 覆盖，client build 的证书校验由契约 IT 真实证书覆盖）。
+     */
+    static Config buildConfig(SshBootstrap ssh, String kubeconfigContent) {
+        Config config = Config.fromKubeconfig(kubeconfigContent);
+        if (ssh.serverOverride() != null && !ssh.serverOverride().isBlank()) {
+            config.setMasterUrl(ssh.serverOverride());
+        }
+        if (ssh.insecureSkipTlsVerify()) {
+            config.setTrustCerts(true);
+            config.setDisableHostnameVerification(true);
+        }
+        return config;
+    }
+
     /** 单例 fabric8 客户端（list/exec/create 共用）。 */
     public KubernetesClient client() {
         return client;

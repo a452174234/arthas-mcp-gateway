@@ -82,15 +82,15 @@
 ### 测试先于实现
 
 - [X] T012 [P] [US2] Write failing `K8sHostStoreTest` in `src/test/java/com/arthas/gateway/orchestration/K8sHostStoreTest.java`（applyDiff：① 新增 host → 建 client put；② 删除 → close+remove+清缓存；③ 改 ssh 密码 → 重建+清缓存；④ 线程安全 applyDiff 串行；mock SSH fetcher 返固定 kubeconfig 文本验 lifecycle diff，非验 SSH 本身）
-- [ ] T013 [P] [US2] Write failing `K8sHostsConfigTest` in `src/test/java/com/arthas/gateway/config/K8sHostsConfigTest.java`（① 解析 config/k8s-hosts.yaml（hosts + k8s-params）；② 文件不存在 → 回退 application.yml 内联 k8s-hosts，INV-HOT-5；③ 解析失败 → 回退上次有效，INV-HOT-4）
+- [X] T013 [P] [US2] Write failing `K8sHostsConfigTest` in `src/test/java/com/arthas/gateway/config/K8sHostsConfigTest.java`（① 解析 config/k8s-hosts.yaml（hosts + k8s-params）；② 文件不存在 → 回退 application.yml 内联 k8s-hosts，INV-HOT-5；③ 解析失败 → 回退上次有效，INV-HOT-4）
 - [ ] T014 [P] [US2] Write failing `K8sHostHotReloadIT` in `src/test/java/com/arthas/gateway/orchestration/K8sHostHotReloadIT.java`（failsafe *IT，真实测试床：运行时改 config/k8s-hosts.yaml 加/删 host → 秒级生效，新 host 可路由/删 host 不可路由；INV-HOT-1/2）
 - [ ] T015 [P] [US2] Write failing `K8sGlobalParamsHotReloadIT` in `src/test/java/com/arthas/gateway/orchestration/K8sGlobalParamsHotReloadIT.java`（failsafe *IT，真实测试床：改 arthas-password → 下次 ensure 用新值，已 ensure 的 pod 不变；INV-HOT-3）
 
 ### 实现
 
 - [X] T016 [US2] Implement `K8sHostStore` + `HostEntry`（AutoCloseable）in `src/main/java/com/arthas/gateway/orchestration/K8sHostStore.java`（ConcurrentHashMap byName + synchronized applyDiff 增删改 + K8sParams 快照；green for T012）
-- [ ] T017 [US2] Implement `K8sHostsWatcher` in `src/main/java/com/arthas/gateway/orchestration/K8sHostsWatcher.java`（仿 BackendConfigWatcher：WatchService + watchLoop + reloadOnce → store.applyDiff；green for T014）
-- [ ] T018 [US2] Implement `K8sHostsConfig` in `src/main/java/com/arthas/gateway/config/K8sHostsConfig.java`（加载 config/k8s-hosts.yaml + 回退 application.yml + 装配 K8sHostStore/K8sHostsWatcher；green for T013）
+- [X] T017 [US2] Implement `K8sHostsWatcher` in `src/main/java/com/arthas/gateway/orchestration/K8sHostsWatcher.java`（仿 BackendConfigWatcher：WatchService + watchLoop + reloadOnce → store.applyDiff；green for T014）
+- [X] T018 [US2] Implement `K8sHostsConfig` in `src/main/java/com/arthas/gateway/config/K8sHostsConfig.java`（加载 config/k8s-hosts.yaml + 回退 application.yml + 装配 K8sHostStore/K8sHostsWatcher；green for T013）
 - [ ] T019 [US2] Refactor `K8sBackendResolver` 从 `K8sHostStore` 查 provisioner（非启动期不可变 Map）+ `K8sOrchestrationConfig` 装配 store in `src/main/java/com/arthas/gateway/orchestration/K8sBackendResolver.java`（green for T014）
 - [ ] T020 [US2] Implement `K8sParams` 快照 + `ArthasProvisioner` 每次 ensure 读 `store.currentParams()` in `src/main/java/com/arthas/gateway/orchestration/`（green for T015）
 

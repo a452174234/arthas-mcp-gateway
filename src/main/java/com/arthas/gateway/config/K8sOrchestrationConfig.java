@@ -6,7 +6,11 @@ import com.arthas.gateway.orchestration.ArthasLauncher;
 import com.arthas.gateway.orchestration.ArthasProvisioner;
 import com.arthas.gateway.orchestration.DefaultArthasLauncher;
 import com.arthas.gateway.orchestration.K8sBackendResolver;
+import com.arthas.gateway.orchestration.HostEntry;
+import com.arthas.gateway.orchestration.HostEntryFactory;
 import com.arthas.gateway.orchestration.K8sClientFactory;
+import com.arthas.gateway.orchestration.K8sHostStore;
+import com.arthas.gateway.orchestration.K8sHostsWatcher;
 import com.arthas.gateway.orchestration.SshBootstrap;
 import com.arthas.gateway.orchestration.K8sEnabledCondition;
 import com.arthas.gateway.orchestration.K8sPodExplorer;
@@ -105,30 +109,55 @@ public class K8sOrchestrationConfig {
      * <p>k8s-hosts 为空（003 单集群场景，仅 ensure 工具）→ resolver 装配但映射空（无 K8S 模式 backend 即不触发）。
      * clients 由本 bean 拥有（{@code destroyMethod="close"} 释放）。
      */
+    /**
+     * 006 波2：K8S host 运行时生命周期 store（host→client/exposer/provisioner，仿 DynamicBackendStore）。
+     *
+     * <p>{@link K8sHostsWatcher} 监听 {@code config/k8s-hosts.yaml} → {@code applyDiff} 增删改 host
+     *（建/关/重建 client，INV-HOT-1）。{@link HostEntryFactory} 封装按 host 建三件套
+     *（kubeconfig→buildFromKubeconfig / ssh→buildFromSsh，006 波1）。
+     */
     @Bean(destroyMethod = "close")
-    @Lazy // 懒创建：避免启动期 registryHolder↔dynamicBackendStore↔backendConfigWatcher 环（首次 create() 经 ObjectProvider 创建，此时启动已完成）
-    BackendResolver backendResolver(GatewayProperties props, DynamicBackendStore dynamicStore,
-                                    OrchestrationRecordStore recordStore, ArthasLauncher launcher) {
+    @Lazy // 懒创建：避免启动期环（store 建客户端需 dynamicStore/launcher，首次经 ObjectProvider 解析时启动已完成）
+    K8sHostStore k8sHostStore(GatewayProperties props, DynamicBackendStore dynamicStore,
+                              OrchestrationRecordStore recordStore, ArthasLauncher launcher) {
         GatewayProperties.K8s k = props.getK8s();
-        Map<String, ArthasProvisioner> provisioners = new LinkedHashMap<>();
-        Map<String, GatewayProperties.K8sHost> hosts = new LinkedHashMap<>();
-        List<KubernetesClient> clients = new ArrayList<>();
-        for (GatewayProperties.K8sHost h : props.getK8sHosts()) {
+        HostEntryFactory factory = h -> {
             KubernetesClient c = h.getSsh() != null
                     ? K8sClientFactory.buildFromSsh(toSshBootstrap(h.getSsh()))
                     : K8sClientFactory.buildFromKubeconfig(h.getKubeconfig());
-            clients.add(c);
             NodePortExposer exposer = new NodePortExposer(c);
             ArthasProvisioner p = new ArthasProvisioner(c, exposer, dynamicStore, recordStore,
                     k.getTargetIp(), k.getArthasBootJar(), k.getMcpPort(), k.getArthasVersion(),
                     k.getArthasPassword(), Duration.ofSeconds(90), launcher);
-            provisioners.put(h.getName(), p);
-            hosts.put(h.getName(), h);
-        }
-        K8sBackendResolver resolver = new K8sBackendResolver(provisioners, hosts, Clock.systemUTC());
-        resolver.setOwnedClients(clients);
-        log.info("K8sBackendResolver 装配：{} host(s) → {}", provisioners.size(), provisioners.keySet());
+            return new HostEntry(h.getName(), c, exposer, p, h);
+        };
+        return new K8sHostStore(factory, name -> { /* resolver 建好后经 setCacheInvalidator 注入 */ });
+    }
+
+    /**
+     * 006 波2：K8S 模式后端懒 resolve（{@link BackendResolver}），从 {@link K8sHostStore} 运行时查 provisioner
+     *（host 增删改立即生效，INV-HOT-1）。host 重建时清 resolve 缓存（setCacheInvalidator 注入 invalidateHost）。
+     */
+    @Bean
+    @Lazy // 解 store↔resolver 装配环（首次路由经 ObjectProvider 解析）
+    BackendResolver backendResolver(K8sHostStore store) {
+        K8sBackendResolver resolver = new K8sBackendResolver(store, Clock.systemUTC());
+        store.setCacheInvalidator(resolver::invalidateHost);
+        log.info("K8sBackendResolver 装配（从 K8sHostStore 运行时查 provisioner，热重载生效）");
         return resolver;
+    }
+
+    /**
+     * 006 波2：{@code config/k8s-hosts.yaml} 热重载监听（启动期初次加载 + WatchService 监听）。
+     * 三触发源（手改文件 / portal CRUD / 启动）统一经 {@link K8sHostsWatcher} → {@link K8sHostStore#applyDiff}。
+     * 文件不存在回退 application.yml 内联 k8s-hosts（005 兼容，INV-HOT-5）。
+     */
+    @Bean(destroyMethod = "close")
+    K8sHostsWatcher k8sHostsWatcher(GatewayProperties props, K8sHostStore store) throws java.io.IOException {
+        java.nio.file.Path file = java.nio.file.Path.of(props.getK8sHostsFile());
+        K8sHostsWatcher watcher = new K8sHostsWatcher(file, new K8sHostsConfig(), props, store);
+        watcher.start();
+        return watcher;
     }
 
     /**

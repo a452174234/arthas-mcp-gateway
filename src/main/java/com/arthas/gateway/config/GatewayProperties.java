@@ -44,6 +44,12 @@ public class GatewayProperties {
      */
     private List<K8sHost> k8sHosts = new ArrayList<>();
 
+    /**
+     * K8S Host 配置文件路径（006 波2，{@code arthas-gateway.k8s-hosts-file}）：独立 {@code config/k8s-hosts.yaml}
+     * 热重载源（仿 {@code backends-file}）。文件不存在回退内联 {@link #k8sHosts}（005 兼容，INV-HOT-5）。
+     */
+    private String k8sHostsFile = "config/k8s-hosts.yaml";
+
     public String getBackendsFile() {
         return backendsFile;
     }
@@ -82,6 +88,14 @@ public class GatewayProperties {
 
     public void setK8sHosts(List<K8sHost> k8sHosts) {
         this.k8sHosts = k8sHosts;
+    }
+
+    public String getK8sHostsFile() {
+        return k8sHostsFile;
+    }
+
+    public void setK8sHostsFile(String k8sHostsFile) {
+        this.k8sHostsFile = k8sHostsFile;
     }
 
     /** 异步任务默认值（方案 C，详见 research.md §4）。 */

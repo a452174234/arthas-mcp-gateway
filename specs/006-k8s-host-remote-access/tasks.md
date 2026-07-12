@@ -91,7 +91,7 @@
 - [X] T016 [US2] Implement `K8sHostStore` + `HostEntry`（AutoCloseable）in `src/main/java/com/arthas/gateway/orchestration/K8sHostStore.java`（ConcurrentHashMap byName + synchronized applyDiff 增删改 + K8sParams 快照；green for T012）
 - [X] T017 [US2] Implement `K8sHostsWatcher` in `src/main/java/com/arthas/gateway/orchestration/K8sHostsWatcher.java`（仿 BackendConfigWatcher：WatchService + watchLoop + reloadOnce → store.applyDiff；green for T014）
 - [X] T018 [US2] Implement `K8sHostsConfig` in `src/main/java/com/arthas/gateway/config/K8sHostsConfig.java`（加载 config/k8s-hosts.yaml + 回退 application.yml + 装配 K8sHostStore/K8sHostsWatcher；green for T013）
-- [ ] T019 [US2] Refactor `K8sBackendResolver` 从 `K8sHostStore` 查 provisioner（非启动期不可变 Map）+ `K8sOrchestrationConfig` 装配 store in `src/main/java/com/arthas/gateway/orchestration/K8sBackendResolver.java`（green for T014）
+- [X] T019 [US2] Refactor `K8sBackendResolver` 从 `K8sHostStore` 查 provisioner（非启动期不可变 Map）+ `K8sOrchestrationConfig` 装配 store in `src/main/java/com/arthas/gateway/orchestration/K8sBackendResolver.java`（green for T014）
 - [ ] T020 [US2] Implement `K8sParams` 快照 + `ArthasProvisioner` 每次 ensure 读 `store.currentParams()` in `src/main/java/com/arthas/gateway/orchestration/`（green for T015）
 
 **Checkpoint (US2)**: 所有 K8S 配置变更热生效（不重启）。
@@ -108,13 +108,13 @@
 
 ### 测试先于实现
 
-- [ ] T021 [P] [US3] Write failing `K8sHostSecretCipherTest` in `src/test/java/com/arthas/gateway/admin/k8shost/K8sHostSecretCipherTest.java`（① encrypt→decrypt 往返；② isConfigured() 随 ENV；③ 未配 ENV → encrypt 抛/返状态；AES-GCM）
+- [X] T021 [P] [US3] Write failing `K8sHostSecretCipherTest` in `src/test/java/com/arthas/gateway/admin/k8shost/K8sHostSecretCipherTest.java`（① encrypt→decrypt 往返；② isConfigured() 随 ENV；③ 未配 ENV → encrypt 抛/返状态；AES-GCM）
 - [ ] T022 [P] [US3] Write failing `K8sHostAdminControllerTest` in `src/test/java/com/arthas/gateway/admin/k8shost/K8sHostAdminControllerTest.java`（① CRUD 写 k8s-hosts.yaml；② K8sHostDto 无 password/privateKey/passphrase，INV-PORTAL-K8S-2；③ 未配 SECRET → POST 含凭证 400 secret_key_not_configured，INV-PORTAL-K8S-3）
 - [ ] T023 [P] [US3] Write failing `K8sHostPortalCrudIT` in `src/test/java/com/arthas/gateway/admin/k8shost/K8sHostPortalCrudIT.java`（failsafe *IT，真实测试床：portal POST ssh host → 写 yaml 加密 → 热重载 → host 可路由；INV-PORTAL-K8S-1/4）
 
 ### 实现
 
-- [ ] T024 [US3] Implement `K8sHostSecretCipher` in `src/main/java/com/arthas/gateway/admin/k8shost/K8sHostSecretCipher.java`（AES-GCM，密钥来自 ARTHAS_GATEWAY_SECRET；green for T021）
+- [X] T024 [US3] Implement `K8sHostSecretCipher` in `src/main/java/com/arthas/gateway/admin/k8shost/K8sHostSecretCipher.java`（AES-GCM，密钥来自 ARTHAS_GATEWAY_SECRET；green for T021）
 - [ ] T025 [US3] Implement `K8sHostsYamlWriter` + `K8sHostAdminService` in `src/main/java/com/arthas/gateway/admin/k8shost/`（写 config/k8s-hosts.yaml version+1 + 凭证加密 → 触发 K8sHostsWatcher 热重载；green for T022）
 - [ ] T026 [US3] Implement `K8sHostAdminController` + DTO（K8sHostDto 脱敏/Create/Update Request）+ 能力开关 in `src/main/java/com/arthas/gateway/admin/k8shost/`（green for T022）
 - [ ] T027 [US3] Implement 前端 `/k8s-hosts` 视图 in `web/src/views/K8sHostListView.vue` + `K8sHostForm.vue`（密码 type=password，编辑留空=不改）+ `web/src/router.ts` 路由 + `SpaConfig` 加 `/k8s-hosts` forward + `web/src/api/adminClient.ts` CRUD（green for T023 前端）

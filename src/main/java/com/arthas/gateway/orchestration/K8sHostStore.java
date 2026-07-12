@@ -25,10 +25,18 @@ public final class K8sHostStore implements AutoCloseable {
     private final ConcurrentHashMap<String, HostEntry> byName = new ConcurrentHashMap<>();
     private final Map<String, String> connectionSignatureByName = new ConcurrentHashMap<>();
     private final HostEntryFactory factory;
-    private final Consumer<String> cacheInvalidator;
+    private volatile Consumer<String> cacheInvalidator;
 
     public K8sHostStore(HostEntryFactory factory, Consumer<String> cacheInvalidator) {
         this.factory = factory;
+        this.cacheInvalidator = cacheInvalidator;
+    }
+
+    /**
+     * 后设 cacheInvalidator（006 波2 装配解 store↔resolver 环：store bean 先建，resolver bean 建好后注入
+     * {@code resolver::invalidateHost}，使 host 重建时清该 host 的 resolve 缓存）。
+     */
+    public void setCacheInvalidator(Consumer<String> cacheInvalidator) {
         this.cacheInvalidator = cacheInvalidator;
     }
 

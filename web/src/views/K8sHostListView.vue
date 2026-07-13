@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { listK8sHosts, deleteK8sHost, type K8sHostDto } from '@/api/adminClient'
-import K8sHostForm from '@/components/K8sHostForm.vue'
+import { listK8sHosts, deleteK8sHost, type K8sHostDto } from '../api/adminClient'
+import K8sHostForm from '../components/K8sHostForm.vue'
 
 // 006 波3：K8S Host 管理（/admin/k8s-hosts CRUD → 热重载）。展示层（宪法原则六）。
 const hosts = ref<K8sHostDto[]>([])

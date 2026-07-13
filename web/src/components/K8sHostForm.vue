@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { createK8sHost } from '@/api/adminClient'
+import { createK8sHost } from '../api/adminClient'
 
 // 006 波3：新增 K8S Host 表单（SSH 引导 / kubeconfig 文件 二选一）。密码 type=password，仅写入用不回显。
 const emit = defineEmits<{ done: []; cancel: [] }>()

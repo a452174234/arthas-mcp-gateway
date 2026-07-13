@@ -113,6 +113,7 @@ public final class K8sHostsWatcher implements AutoCloseable {
         try {
             LoadedHosts loaded = loader.loadHosts(configFile, props);
             store.applyDiff(loaded.hosts());
+            store.updateParams(loader.loadParams(configFile, props)); // T020 全局参数热刷新
             log.info("K8S Hosts 重载完成：{} host(s)（{}）", loaded.hosts().size(),
                     loaded.fromFallback() ? "回退 application.yml 内联" : configFile);
         } catch (Exception e) {

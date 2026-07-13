@@ -121,6 +121,8 @@ public class K8sOrchestrationConfig {
     K8sHostStore k8sHostStore(GatewayProperties props, DynamicBackendStore dynamicStore,
                               OrchestrationRecordStore recordStore, ArthasLauncher launcher) {
         GatewayProperties.K8s k = props.getK8s();
+        // 006 波2 T020：factory 需引用 store（setParamsSupplier(store::currentParams)），用 ref holder 解 self-ref
+        final K8sHostStore[] ref = new K8sHostStore[1];
         HostEntryFactory factory = h -> {
             KubernetesClient c = h.getSsh() != null
                     ? K8sClientFactory.buildFromSsh(toSshBootstrap(h.getSsh()))
@@ -129,9 +131,12 @@ public class K8sOrchestrationConfig {
             ArthasProvisioner p = new ArthasProvisioner(c, exposer, dynamicStore, recordStore,
                     k.getTargetIp(), k.getArthasBootJar(), k.getMcpPort(), k.getArthasVersion(),
                     k.getArthasPassword(), Duration.ofSeconds(90), launcher);
+            p.setParamsSupplier(() -> ref[0] != null ? ref[0].currentParams() : null); // T020 全局参数热生效
             return new HostEntry(h.getName(), c, exposer, p, h);
         };
-        return new K8sHostStore(factory, name -> { /* resolver 建好后经 setCacheInvalidator 注入 */ });
+        K8sHostStore store = new K8sHostStore(factory, name -> { /* resolver 建好后经 setCacheInvalidator 注入 */ });
+        ref[0] = store;
+        return store;
     }
 
     /**

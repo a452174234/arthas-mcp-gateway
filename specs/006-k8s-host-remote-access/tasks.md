@@ -92,7 +92,7 @@
 - [X] T017 [US2] Implement `K8sHostsWatcher` in `src/main/java/com/arthas/gateway/orchestration/K8sHostsWatcher.java`（仿 BackendConfigWatcher：WatchService + watchLoop + reloadOnce → store.applyDiff；green for T014）
 - [X] T018 [US2] Implement `K8sHostsConfig` in `src/main/java/com/arthas/gateway/config/K8sHostsConfig.java`（加载 config/k8s-hosts.yaml + 回退 application.yml + 装配 K8sHostStore/K8sHostsWatcher；green for T013）
 - [X] T019 [US2] Refactor `K8sBackendResolver` 从 `K8sHostStore` 查 provisioner（非启动期不可变 Map）+ `K8sOrchestrationConfig` 装配 store in `src/main/java/com/arthas/gateway/orchestration/K8sBackendResolver.java`（green for T014）
-- [ ] T020 [US2] Implement `K8sParams` 快照 + `ArthasProvisioner` 每次 ensure 读 `store.currentParams()` in `src/main/java/com/arthas/gateway/orchestration/`（green for T015）
+- [X] T020 [US2] Implement `K8sParams` 快照 + `ArthasProvisioner` 每次 ensure 读 `store.currentParams()` in `src/main/java/com/arthas/gateway/orchestration/`（green for T015）
 
 **Checkpoint (US2)**: 所有 K8S 配置变更热生效（不重启）。
 

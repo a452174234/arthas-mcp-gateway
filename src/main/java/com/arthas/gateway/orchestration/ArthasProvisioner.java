@@ -7,6 +7,7 @@ import com.arthas.gateway.backend.BackendConfigException;
 import com.arthas.gateway.backend.DynamicBackendStore;
 import com.arthas.gateway.backend.Protocol;
 import com.arthas.gateway.backend.Source;
+import com.arthas.gateway.config.K8sParams;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
@@ -20,6 +21,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
@@ -79,6 +81,17 @@ public class ArthasProvisioner {
     private final NodePortExposer exposer;
     /** 005 US3：arthas 启动委托（locatePid + startArthas）；用户 @Primary 实现覆盖 DefaultArthasLauncher（INV-LAUNCHER-3）。 */
     private final ArthasLauncher launcher;
+    /**
+     * 006 波2 T020：动态 K8S 参数供应（全局参数热生效，INV-HOT-3）。
+     * <p>{@code null} = 用构造值（005 兼容；006 装配经 {@code setParamsSupplier(K8sHostStore::currentParams)} 注入）。
+     * {@link #buildContext} 读 supplier 取 mcpPort/targetIp/arthasVersion/arthasPassword。
+     */
+    private Supplier<K8sParams> paramsSupplier;
+
+    /** 006 波2 T020：注入参数供应（{@code K8sHostStore::currentParams}），使 ensure 读最新全局参数。 */
+    public void setParamsSupplier(Supplier<K8sParams> paramsSupplier) {
+        this.paramsSupplier = paramsSupplier;
+    }
     private final DynamicBackendStore dynamicStore;
     private final OrchestrationRecordStore recordStore;
     private final String targetIp;
@@ -143,9 +156,14 @@ public class ArthasProvisioner {
 
     /** 005 US3：构造 LaunchContext（namespace/pod + exec + arthas 启动参数 + 远程 jar path），传 ArthasLauncher。 */
     private ArthasLauncher.LaunchContext buildContext(String namespace, String pod) {
-        return new ArthasLauncher.LaunchContext(namespace, pod, exec, mcpPort, targetIp,
-                arthasVersion, arthasPassword, REMOTE_ARTHAS_JAR,
-                ATTACH_TIMEOUT, LOCATE_TIMEOUT);
+        // 006 波2 T020：paramsSupplier 设了 → 读动态全局参数（热生效，INV-HOT-3）；null → 构造值（005 兼容）
+        K8sParams p = paramsSupplier != null ? paramsSupplier.get() : null;
+        return new ArthasLauncher.LaunchContext(namespace, pod, exec,
+                p != null ? p.mcpPort() : mcpPort,
+                p != null ? p.targetIp() : targetIp,
+                p != null ? p.arthasVersion() : arthasVersion,
+                p != null ? p.arthasPassword() : arthasPassword,
+                REMOTE_ARTHAS_JAR, ATTACH_TIMEOUT, LOCATE_TIMEOUT);
     }
 
     /** 确定性派生逻辑名（target 名）= {@code {server}-{pod}}（K-ENS-8）。 */

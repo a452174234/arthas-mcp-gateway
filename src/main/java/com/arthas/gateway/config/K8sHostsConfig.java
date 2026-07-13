@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -90,5 +91,56 @@ public final class K8sHostsConfig {
             s.setInsecureSkipTlsVerify(b);
         }
         return s;
+    }
+
+    /**
+     * 006 波2 T020：加载全局 K8S 参数（{@code config/k8s-hosts.yaml} 的 {@code k8s-params} 段）。
+     *
+     * <p>文件不存在 / 无 {@code k8s-params} 段 → 回退 {@link K8sParams#from(GatewayProperties.K8s)}（启动期绑定，005 兼容）。
+     * Duration 用 Spring {@code DurationStyle.SIMPLE}（支持 {@code 5m}/{@code 30s} 简洁格式）。
+     */
+    public K8sParams loadParams(Path file, GatewayProperties props) throws IOException {
+        K8sParams fallback = K8sParams.from(props.getK8s());
+        if (!Files.exists(file)) {
+            return fallback;
+        }
+        try (InputStream in = Files.newInputStream(file)) {
+            Map<String, Object> root = new Yaml().load(in);
+            if (root == null || !(root.get("k8s-params") instanceof Map<?, ?> raw)) {
+                return fallback;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> pm = (Map<String, Object>) raw;
+            return new K8sParams(
+                    str(pm, "target-ip", fallback.targetIp()),
+                    intVal(pm, "mcp-port", fallback.mcpPort()),
+                    str(pm, "arthas-version", fallback.arthasVersion()),
+                    str(pm, "arthas-password", fallback.arthasPassword()),
+                    durationVal(pm, "ensure-timeout", fallback.ensureTimeout()),
+                    str(pm, "node-port-range", fallback.nodePortRange()),
+                    str(pm, "arthas-boot-jar", fallback.arthasBootJar()));
+        }
+    }
+
+    private static String str(Map<String, Object> m, String key, String fallback) {
+        Object v = m.get(key);
+        return v != null ? v.toString() : fallback;
+    }
+
+    private static int intVal(Map<String, Object> m, String key, int fallback) {
+        Object v = m.get(key);
+        return v instanceof Number n ? n.intValue() : fallback;
+    }
+
+    private static Duration durationVal(Map<String, Object> m, String key, Duration fallback) {
+        Object v = m.get(key);
+        if (v == null) {
+            return fallback;
+        }
+        try {
+            return org.springframework.boot.convert.DurationStyle.SIMPLE.parse(v.toString());
+        } catch (Exception e) {
+            return fallback;
+        }
     }
 }

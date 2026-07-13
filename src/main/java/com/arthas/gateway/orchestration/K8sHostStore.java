@@ -1,6 +1,7 @@
 package com.arthas.gateway.orchestration;
 
 import com.arthas.gateway.config.GatewayProperties;
+import com.arthas.gateway.config.K8sParams;
 
 import java.util.HashSet;
 import java.util.Iterator;
@@ -38,6 +39,22 @@ public final class K8sHostStore implements AutoCloseable {
      */
     public void setCacheInvalidator(Consumer<String> cacheInvalidator) {
         this.cacheInvalidator = cacheInvalidator;
+    }
+
+    private volatile K8sParams params;
+
+    /**
+     * 006 波2 T020：刷新全局 K8S 参数（{@code K8sHostsWatcher} 加载 {@code config/k8s-hosts.yaml} 的
+     * {@code k8s-params} 段后调用）。{@code ArthasProvisioner} 经 {@code paramsSupplier} 读 {@code currentParams()}，
+     * 使全局参数热生效（下次 ensure 用新值，INV-HOT-3）。
+     */
+    public void updateParams(K8sParams params) {
+        this.params = params;
+    }
+
+    /** 当前全局参数快照（provisioner 经 supplier 读）。 */
+    public K8sParams currentParams() {
+        return params;
     }
 
     /**

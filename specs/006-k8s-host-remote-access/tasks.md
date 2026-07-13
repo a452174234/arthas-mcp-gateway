@@ -138,7 +138,7 @@
 
 ### 实现
 
-- [ ] T030 [US4] Fix `BackendConfigWatcher` 动态 compose 异常吞咽 in `src/main/java/com/arthas/gateway/backend/BackendConfigWatcher.java`（:190-196 catch 改为异常可见 WARN + holder 兜底含新注册项；green for T028）
+- [X] T030 [US4] Fix `BackendConfigWatcher` 动态 compose 异常吞咽 in `src/main/java/com/arthas/gateway/backend/BackendConfigWatcher.java`（:190-196 catch 改为异常可见 WARN + holder 兜底含新注册项；green for T028）
 - [X] T031 [US4] Implement `BackendDto` 加 K8S 来源字段 + `BackendAdminService.list` 投影（自 OrchestrationRecordStore + host 配置）in `src/main/java/com/arthas/gateway/admin/backend/`（green for T029）
 - [X] T032 [US4] Implement 前端 `BackendListView.vue` 自动刷新 + K8S 来源列 in `web/src/views/BackendListView.vue`（green for T028 前端 INV-DISP-2）
 

@@ -64,9 +64,20 @@ public class BackendAdminService {
     }
 
     public List<BackendDto> list() {
-        return registryHolder.current().byName().values().stream()
-                .map(this::toDto)
-                .toList();
+        java.util.Map<String, BackendEntry> byName = registryHolder.current().byName();
+        List<BackendDto> dtos = new ArrayList<>();
+        for (BackendEntry e : byName.values()) {
+            dtos.add(toDto(e));
+        }
+        // 006 波4 T030：兜底——BackendConfigWatcher compose 异常吞咽（:190-196）时 holder 可能缺新 dynamic
+        //（ensure 后 portal 不可见 bug 根因之一）。补 dynamicStore 中未进 holder 的（默认 ACTIVE/healthy/CLOSED），
+        // 保证 ensure 纳管后 portal list 可见（INV-DISP-1）。正常情况 holder 已含，兜底无加（不影响）。
+        for (BackendConfig dyn : dynamicStore.list()) {
+            if (!byName.containsKey(dyn.name())) {
+                dtos.add(toDto(dyn, "ACTIVE", true, "CLOSED"));
+            }
+        }
+        return dtos;
     }
 
     public BackendDto get(String name) {

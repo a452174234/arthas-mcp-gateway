@@ -109,14 +109,14 @@
 ### 测试先于实现
 
 - [X] T021 [P] [US3] Write failing `K8sHostSecretCipherTest` in `src/test/java/com/arthas/gateway/admin/k8shost/K8sHostSecretCipherTest.java`（① encrypt→decrypt 往返；② isConfigured() 随 ENV；③ 未配 ENV → encrypt 抛/返状态；AES-GCM）
-- [ ] T022 [P] [US3] Write failing `K8sHostAdminControllerTest` in `src/test/java/com/arthas/gateway/admin/k8shost/K8sHostAdminControllerTest.java`（① CRUD 写 k8s-hosts.yaml；② K8sHostDto 无 password/privateKey/passphrase，INV-PORTAL-K8S-2；③ 未配 SECRET → POST 含凭证 400 secret_key_not_configured，INV-PORTAL-K8S-3）
+- [X] T022 [P] [US3] Write failing `K8sHostAdminControllerTest` in `src/test/java/com/arthas/gateway/admin/k8shost/K8sHostAdminControllerTest.java`（① CRUD 写 k8s-hosts.yaml；② K8sHostDto 无 password/privateKey/passphrase，INV-PORTAL-K8S-2；③ 未配 SECRET → POST 含凭证 400 secret_key_not_configured，INV-PORTAL-K8S-3）
 - [ ] T023 [P] [US3] Write failing `K8sHostPortalCrudIT` in `src/test/java/com/arthas/gateway/admin/k8shost/K8sHostPortalCrudIT.java`（failsafe *IT，真实测试床：portal POST ssh host → 写 yaml 加密 → 热重载 → host 可路由；INV-PORTAL-K8S-1/4）
 
 ### 实现
 
 - [X] T024 [US3] Implement `K8sHostSecretCipher` in `src/main/java/com/arthas/gateway/admin/k8shost/K8sHostSecretCipher.java`（AES-GCM，密钥来自 ARTHAS_GATEWAY_SECRET；green for T021）
-- [ ] T025 [US3] Implement `K8sHostsYamlWriter` + `K8sHostAdminService` in `src/main/java/com/arthas/gateway/admin/k8shost/`（写 config/k8s-hosts.yaml version+1 + 凭证加密 → 触发 K8sHostsWatcher 热重载；green for T022）
-- [ ] T026 [US3] Implement `K8sHostAdminController` + DTO（K8sHostDto 脱敏/Create/Update Request）+ 能力开关 in `src/main/java/com/arthas/gateway/admin/k8shost/`（green for T022）
+- [X] T025 [US3] Implement `K8sHostsYamlWriter` + `K8sHostAdminService` in `src/main/java/com/arthas/gateway/admin/k8shost/`（写 config/k8s-hosts.yaml version+1 + 凭证加密 → 触发 K8sHostsWatcher 热重载；green for T022）
+- [X] T026 [US3] Implement `K8sHostAdminController` + DTO（K8sHostDto 脱敏/Create/Update Request）+ 能力开关 in `src/main/java/com/arthas/gateway/admin/k8shost/`（green for T022）
 - [ ] T027 [US3] Implement 前端 `/k8s-hosts` 视图 in `web/src/views/K8sHostListView.vue` + `K8sHostForm.vue`（密码 type=password，编辑留空=不改）+ `web/src/router.ts` 路由 + `SpaConfig` 加 `/k8s-hosts` forward + `web/src/api/adminClient.ts` CRUD（green for T023 前端）
 
 **Checkpoint (US3)**: portal 网页管理 K8sHost，改完立即生效 + 密码加密不回显。

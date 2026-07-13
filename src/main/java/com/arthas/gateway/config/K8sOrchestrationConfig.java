@@ -153,9 +153,9 @@ public class K8sOrchestrationConfig {
      * 文件不存在回退 application.yml 内联 k8s-hosts（005 兼容，INV-HOT-5）。
      */
     @Bean(destroyMethod = "close")
-    K8sHostsWatcher k8sHostsWatcher(GatewayProperties props, K8sHostStore store) throws java.io.IOException {
+    K8sHostsWatcher k8sHostsWatcher(GatewayProperties props, K8sHostStore store, K8sHostsConfig loader) throws java.io.IOException {
         java.nio.file.Path file = java.nio.file.Path.of(props.getK8sHostsFile());
-        K8sHostsWatcher watcher = new K8sHostsWatcher(file, new K8sHostsConfig(), props, store);
+        K8sHostsWatcher watcher = new K8sHostsWatcher(file, loader, props, store);
         watcher.start();
         return watcher;
     }

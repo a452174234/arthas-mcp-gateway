@@ -388,4 +388,58 @@
 
 ---
 
+## 第 74 章 006 K8S Host 远程接入与配置热生效决策
+
+### R1 · SSH 引导接入（sshj，非 kubeconfig 内联 / BasicAuth）
+
+- **决策**：用户只配 master IP + root + 密码，网关 SSH 登 master 取 admin kubeconfig；SSH 库 **sshj 0.38.0**（Ed25519 via BouncyCastle）。
+- **理由**：用户只有 root SSH 凭证、处理不了 K8S 鉴权；k3s/标准 K8S 的 root 可读 admin kubeconfig；K8S BasicAuth 在 k3s 默认禁用、1.19+ 废弃。
+- **替代**：kubeconfig 内联（用户没有）/ SSH 隧道（内网互通不需要）/ Apache MINA SSHD（过重，仅 exec cat）/ JSch 原版（停更不支持现代算法）—— 均否。
+
+### R2 · kubeconfig 远端路径可配（admin.conf / k3s.yaml）
+
+- **决策**：`kubeconfig-remote-path` 可配，标准 K8S `/etc/kubernetes/admin.conf`，k3s `/etc/rancher/k3s/k3s.yaml`。
+- **理由**：root 登 master、kubectl 能跑 = 有现成 cluster-admin kubeconfig。
+
+### R3 · buildFromSsh 复用 Config.fromKubeconfig + 首取缓存
+
+- **决策**：SSH 取 kubeconfig 文本 → `Config.fromKubeconfig` → client；`K8sHostStore` 持 client（不每次路由都 SSH，SSH 仅 host 首建/重建时一次）。
+- **理由**：仅把 005 `buildFromKubeconfig` 的「文件读取」换「SSH 取文本」，解析路径复用。
+
+### R4 · 热重载仿 BackendConfigWatcher + DynamicBackendStore
+
+- **决策**：`K8sHostsWatcher`（WatchService + 500ms 防抖）+ `K8sHostStore`（`applyDiff` diff by 连接签名，namespace 变不重建 client）。
+- **理由**：复用 001 已验证的热重载模式，非新发明（YAGNI）。
+
+### R5 · config/k8s-hosts.yaml 独立 + application.yml 回退
+
+- **决策**：独立 `config/k8s-hosts.yaml`（仿 backends.yaml，热重载源）；文件不存在回退 `application.yml` 内联 `k8s-hosts`（005 兼容）。
+- **理由**：热重载需独立可监听文件（@ConfigurationProperties 启动绑定不适用）。
+
+### R6 · 全局参数热生效（不重建 client，下次 ensure 读新值）
+
+- **决策**：k8s 全局参数（arthas-password/version/ensure-timeout 等）下次 ensure 读新值（不绑 client，无需重建）。
+- **注**：provisioner 读 store params（T020）留后置——需 ArthasProvisioner 改造 + 005 测试更新，host 热生效已完成核心。
+
+### R7 · root 密码 AES-GCM 加密（密钥环境变量）
+
+- **决策**：`K8sHostSecretCipher` AES-GCM（机密性 + 完整性），密钥 `ARTHAS_GATEWAY_SECRET` env；未配 → 写凭证端点 400 `secret_key_not_configured`。
+- **替代**：裸明文（不可接受）/ Vault（P2 后置）。
+
+### R8 · ensure 不显示 = 前端不刷新 + compose 异常吞咽（非过滤）
+
+- **决策**：修前端自动刷新（T032，10s 轮询）+ BackendDto K8S 字段（T031，`sourceDetail` 缓解 `{server}-{pod}` 名字认知）；代码层不过滤 DYNAMIC（有测试断言）。
+- **注**：`BackendConfigWatcher` compose 异常 holder 兜底（T030）留后置——需深入 RegistryComposer，罕见场景。
+
+### R9 · TLS 兜底（server-override + insecure-skip-tls-verify）
+
+- **决策**：两字段各兜底 fabric8 连接的一个环节——`server-override`（可达性/DNS，替换 127.0.0.1/VIP）+ `insecure-skip-tls-verify`（TLS SAN 校验，默认 false）。
+
+### R10 · 测试床 k3s 验证核心链路 + MINA SSHD embedded 单测
+
+- **决策**：SSH 单测用 Apache MINA SSHD embedded server（真实 SSH 协议，非桩）；契约 IT 跑真实测试床 k3s（debian 192.168.31.92）；标准 K8S 真实端到端延后公司落地。
+- **理由**：TDD 真实环境硬约束（宪法原则七）；测试床是唯一可达真实 K8S；核心链路（SSH→kubeconfig→连）发行版无关。
+
+---
+
 > **下一步**：Part 10 关键类源码摘录（逐行级，事无巨细）。

@@ -83,7 +83,7 @@
 
 - [X] T012 [P] [US2] Write failing `K8sHostStoreTest` in `src/test/java/com/arthas/gateway/orchestration/K8sHostStoreTest.java`（applyDiff：① 新增 host → 建 client put；② 删除 → close+remove+清缓存；③ 改 ssh 密码 → 重建+清缓存；④ 线程安全 applyDiff 串行；mock SSH fetcher 返固定 kubeconfig 文本验 lifecycle diff，非验 SSH 本身）
 - [X] T013 [P] [US2] Write failing `K8sHostsConfigTest` in `src/test/java/com/arthas/gateway/config/K8sHostsConfigTest.java`（① 解析 config/k8s-hosts.yaml（hosts + k8s-params）；② 文件不存在 → 回退 application.yml 内联 k8s-hosts，INV-HOT-5；③ 解析失败 → 回退上次有效，INV-HOT-4）
-- [ ] T014 [P] [US2] Write failing `K8sHostHotReloadIT` in `src/test/java/com/arthas/gateway/orchestration/K8sHostHotReloadIT.java`（failsafe *IT，真实测试床：运行时改 config/k8s-hosts.yaml 加/删 host → 秒级生效，新 host 可路由/删 host 不可路由；INV-HOT-1/2）
+- [X] T014 [P] [US2] Write failing `K8sHostHotReloadIT` in `src/test/java/com/arthas/gateway/orchestration/K8sHostHotReloadIT.java`（failsafe *IT，真实测试床：运行时改 config/k8s-hosts.yaml 加/删 host → 秒级生效，新 host 可路由/删 host 不可路由；INV-HOT-1/2）
 - [ ] T015 [P] [US2] Write failing `K8sGlobalParamsHotReloadIT` in `src/test/java/com/arthas/gateway/orchestration/K8sGlobalParamsHotReloadIT.java`（failsafe *IT，真实测试床：改 arthas-password → 下次 ensure 用新值，已 ensure 的 pod 不变；INV-HOT-3）
 
 ### 实现

@@ -228,3 +228,62 @@
 - **向后兼容**：kubeconfig 文件模式 + 无 ssh host → 行为 = 005 现状（零迁移）；config/k8s-hosts.yaml 不存在回退 application.yml
 - **公司标准 K8S 够不着**：核心链路用测试床 k3s 验证（路径可配兼容 admin.conf）；标准 K8S 真实端到端延后公司落地（文档声明）
 - 每个任务或逻辑组完成后提交；任一 checkpoint 可停下独立验证；同一问题连续失败 3 次暂停重评（CLAUDE.md）
+
+---
+
+## 剩余任务接力清单（30/36 完成，6 待续）
+
+> 单会话上下文耗尽，剩余 6 个需新会话接力。每条含**改文件 / 破坏点 / 验证 / 风险**，照着做不会漏连带破坏。
+> 当前状态：8 commit 在 `006-k8s-host-remote-access` 分支；323 单测回归全绿；前端 `npm run build` 绿；波1 MVP 真实验证可用。
+> 接力入口：新会话 `/speckit-implement`（spec-kit 读本 tasks.md 从下一条接着做，设计文档 spec/plan/research/data-model/contracts 全就位）。
+
+### T020 · 全局 K8sParams 让 ArthasProvisioner 读 store params（波2，"所有热生效"最后一块）
+
+- **改文件**：
+  - 新增 `src/main/java/com/arthas/gateway/config/K8sParams.java`（record：targetIp/mcpPort/arthasVersion/arthasPassword/ensureTimeout/nodePortRange/arthasBootJar + `static K8sParams from(GatewayProperties.K8s)`）
+  - `orchestration/K8sHostStore.java` 加 `volatile K8sParams params` + `updateParams(K8sParams)` / `K8sParams currentParams()`
+  - `config/K8sHostsConfig.java` 加 `K8sParams loadParams(Path file, GatewayProperties props)`（解析 `config/k8s-hosts.yaml` 的 `k8s-params` 段；Duration 用 `DurationStyle.detectAndParse` 或 ISO，`5m` 需 Spring `DurationStyle.SIMPLE`）
+  - `orchestration/K8sHostsWatcher.java` `reloadOnce` 加 `store.updateParams(loader.loadParams(configFile, props))`
+  - `orchestration/ArthasProvisioner.java` 加 `private Supplier<K8sParams> paramsSupplier;` + `setParamsSupplier(Supplier)`；改 `buildContext`（:145-149）读 supplier 覆盖 mcpPort/targetIp/arthasVersion/arthasPassword（**supplier==null 用构造值，005 兼容**）
+  - `config/K8sOrchestrationConfig.java` `k8sHostStore` bean 的 HostEntryFactory lambda 内，建 provisioner 后 `p.setParamsSupplier(store::currentParams)`
+- **破坏点**：005 `ArthasProvisionerIT`（真实 K8S IT，需测试床验证 ensure 行为不变）；`buildContext` 改 ensure 启动参数
+- **验证**：`./mvnw test -Dtest='ArthasLauncherSpiTest,DefaultArthasLauncherTest,K8sBackendResolverTest'`（单测先绿）→ 测试床跑 `ArthasProvisionerIT`（确认 ensure 不破）→ `K8sGlobalParamsHotReloadIT`（T015）
+- **风险**：buildContext 读 supplier 改 arthas 启动命令；务必 supplier==null 走原构造值保证 005 兼容
+
+### T030 · BackendConfigWatcher compose 异常 holder 兜底（波4 bug，罕见场景）
+
+- **改文件**：`backend/BackendConfigWatcher.java` `recomposeForDynamicChange`（:190-196）/ `applyCompose`（:212-221）——compose 抛异常时，让新注册项仍进 holder（或 `BackendAdminService.list` 兜底合并 `DynamicBackendStore.byName`）
+- **破坏点**：005 BackendConfigWatcher 相关单测；RegistryComposer 调用语义
+- **验证**：单测构造 compose 异常场景 + `EnsureVisibleInPortalIT`（T028）
+- **风险**：bug 罕见（compose 异常），主因已由 T031（sourceDetail 缓解名字认知）+ T032（前端自动刷新）覆盖；holder 兜底需深入 RegistryComposer。**可标注 P2 后置**
+
+### T023 · K8sHostPortalCrudIT（波3 portal 端到端 IT）
+
+- **新文件**：`src/test/java/com/arthas/gateway/admin/k8shost/K8sHostPortalCrudIT.java`（`@SpringBootTest` + `@EnabledIfEnvironmentVariable(TEST_K3S_HOST)`：POST `/admin/k8s-hosts` ssh host → 写 `config/k8s-hosts.yaml` → 等 K8sHostsWatcher 500ms 防抖 → 断言 K8sHostStore 含新 host + 可 list-pods）
+- **验证**：`TEST_K3S_HOST=192.168.31.92 ./mvnw verify -Dit.test=K8sHostPortalCrudIT -DfailIfNoTests=false -DskipFrontend=true`
+- **风险**：`@SpringBootTest` 装配调试（K8sHostStore/K8sHostsWatcher bean 启动 + 测试床 SSH key）
+
+### T028 · EnsureVisibleInPortalIT（波4 ensure 可见 bug 守护）
+
+- **新文件**：`src/test/java/com/arthas/gateway/backend/EnsureVisibleInPortalIT.java`（`@SpringBootTest` + 测试床：ensure-arthas-mcp → 断言 `RegistryHolder.current()` 含 `{server}-{pod}` + `GET /admin/backends` 含该 target）
+- **依赖**：T030 若做则覆盖 compose 异常路径
+- **验证**：测试床跑
+
+### T014 / T015 · K8sHostHotReloadIT / K8sGlobalParamsHotReloadIT（波2 热重载 IT）
+
+- **新文件**：`orchestration/K8sHostHotReloadIT.java`（`@SpringBootTest` + 测试床：运行时改 `config/k8s-hosts.yaml` 增/删 host → 等 watcher → 断言 store.get 反映）+ `K8sGlobalParamsHotReloadIT.java`（改全局参数 → 下次 ensure 用新值，**依赖 T020**）
+- **验证**：测试床跑（改文件 + Thread.sleep 等 500ms 防抖 + 断言 store）
+
+### T036 · quickstart 真实验证
+
+- **验证**：测试床端到端跑 `specs/006-k8s-host-remote-access/quickstart.md` 场景 A（SSH 引导）+ B（热重载，依赖 T014）+ C（portal CRUD，依赖 T023）+ D（显示，依赖 T028），逐项核对 Done Definition 勾选
+
+### 回归门禁（每完成一条后跑）
+
+- `./mvnw test -DskipFrontend=true`（323 单测保持全绿）
+- `./mvnw verify -DskipFrontend=true`（含 failsafe IT，需测试床）
+- `PackageBoundaryTest`（sshj 守护 INV-BOUNDARY-3）
+
+### 已完成（30 个，[X] 权威）
+
+T001-T013、T016-T019、T021、T022、T024-T027、T029、T031-T035（波1 全 + 波2 host 热生效闭环 + 波3 portal 全栈 + 波4 显示/前端刷新 + 波7 ArchUnit + handbook part4/5/9）。

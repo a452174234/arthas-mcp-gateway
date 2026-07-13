@@ -20,5 +20,10 @@ public record BackendDto(
         String authMode,
         int connectTimeoutMs,
         int callTimeoutMs,
-        int maxConcurrentTasks) {
+        int maxConcurrentTasks,
+        String k8sHost,
+        String pod,
+        String namespace,
+        String sourceDetail,
+        String ensureStatus) {
 }

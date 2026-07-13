@@ -17,7 +17,8 @@ class BackendDtoTest {
         BackendDto dto = new BackendDto(
                 "order-service", "STATIC", "ACTIVE", true, "CLOSED",
                 "http://10.0.0.10:8563", "STREAMABLE", "BEARER",
-                5000, 30000, 5);
+                5000, 30000, 5,
+                null, null, null, "static", null);
 
         assertThat(dto.name()).isEqualTo("order-service");
         assertThat(dto.source()).isEqualTo("STATIC");
@@ -49,7 +50,8 @@ class BackendDtoTest {
         BackendDto dynamic = new BackendDto(
                 "debian-demo-business", "DYNAMIC", "ACTIVE", false, "OPEN",
                 "http://192.168.31.92:32017", "STREAMABLE", "BEARER",
-                5000, 30000, 5);
+                5000, 30000, 5,
+                "debian", "demo-business", "default", "k8s:debian", "ready");
         assertThat(dynamic.source()).isEqualTo("DYNAMIC");
         assertThat(dynamic.healthy()).isFalse();
         assertThat(dynamic.breaker()).isEqualTo("OPEN");

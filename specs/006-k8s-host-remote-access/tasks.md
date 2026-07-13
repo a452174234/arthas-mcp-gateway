@@ -134,12 +134,12 @@
 ### 测试先于实现
 
 - [ ] T028 [P] [US4] Write failing `EnsureVisibleInPortalIT` in `src/test/java/com/arthas/gateway/backend/EnsureVisibleInPortalIT.java`（failsafe *IT，真实测试床：ensure 成功 → RegistryHolder.current() 含 {server}-{pod}，**不受** compose 异常吞咽影响；INV-DISP-1）
-- [ ] T029 [P] [US4] Write failing `BackendDtoK8sFieldsTest` in `src/test/java/com/arthas/gateway/admin/backend/BackendDtoK8sFieldsTest.java`（K8S 来源 backend DTO 带 k8sHost/pod/namespace/sourceDetail/ensureStatus，INV-DISP-3；仍无 token/password，INV-DISP-4）
+- [X] T029 [P] [US4] Write failing `BackendDtoK8sFieldsTest` in `src/test/java/com/arthas/gateway/admin/backend/BackendDtoK8sFieldsTest.java`（K8S 来源 backend DTO 带 k8sHost/pod/namespace/sourceDetail/ensureStatus，INV-DISP-3；仍无 token/password，INV-DISP-4）
 
 ### 实现
 
 - [ ] T030 [US4] Fix `BackendConfigWatcher` 动态 compose 异常吞咽 in `src/main/java/com/arthas/gateway/backend/BackendConfigWatcher.java`（:190-196 catch 改为异常可见 WARN + holder 兜底含新注册项；green for T028）
-- [ ] T031 [US4] Implement `BackendDto` 加 K8S 来源字段 + `BackendAdminService.list` 投影（自 OrchestrationRecordStore + host 配置）in `src/main/java/com/arthas/gateway/admin/backend/`（green for T029）
+- [X] T031 [US4] Implement `BackendDto` 加 K8S 来源字段 + `BackendAdminService.list` 投影（自 OrchestrationRecordStore + host 配置）in `src/main/java/com/arthas/gateway/admin/backend/`（green for T029）
 - [ ] T032 [US4] Implement 前端 `BackendListView.vue` 自动刷新 + K8S 来源列 in `web/src/views/BackendListView.vue`（green for T028 前端 INV-DISP-2）
 
 **Checkpoint (US4)**: ensure 后 portal 可见 + K8S 来源 + 自动刷新。

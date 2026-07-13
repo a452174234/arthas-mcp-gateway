@@ -766,4 +766,40 @@ ssh root@192.168.31.92 'kubectl delete pod demo-business'
 
 ---
 
+## 第 36 章 006 K8S Host 远程接入与配置热生效
+
+006 在 003/005 编排基础上做四点迭代，适配「用户只有 root SSH 凭证 / 要求配置热生效 / portal 管理 / 显示增强」场景。设计见 `docs/superpowers/specs/2026-07-13-k8s-host-remote-access-design.md`，规格见 `specs/006-k8s-host-remote-access/`。
+
+### 36.1 SSH 引导接入（波1，INV-SSH-1~5）
+
+用户只配 master IP + root + 密码/私钥，网关 SSH 登 master 取 admin kubeconfig（标准 K8S `/etc/kubernetes/admin.conf`；k3s `/etc/rancher/k3s/k3s.yaml`），构造 fabric8 client——免用户处理 K8S 鉴权。SSH 库 **sshj 0.38.0**（Ed25519 via BouncyCastle）。
+
+- `SshBootstrap`（record）+ `SshKubeconfigFetcher`（sshj exec `cat <path>`）+ `SshBootstrapException`（reason: `ssh_unreachable`/`ssh_auth_failed`/`kubeconfig_not_found`/`kubeconfig_invalid`）。
+- `K8sClientFactory.buildFromSsh` + `buildConfig`（`Config.fromKubeconfig` + `serverOverride` 替换不可达 server + `insecureSkipTlsVerify` 兜底 SAN 不匹配）。
+- `K8sHost` 加 `ssh` 子段（与 `kubeconfig` 互斥，INV-SSH-3）。
+- 真实测试床验证（`SshBootstrapContractIT`）：sshj↔OpenSSH + ed25519 key → 取 k3s.yaml → 连 K8S → list-pods demo-business。
+
+### 36.2 全配置热生效（波2，INV-HOT-1~6）
+
+`config/k8s-hosts.yaml`（仿 `backends.yaml` + WatchService）独立配置文件；三触发源（手改文件 / portal CRUD / 启动）统一经 `K8sHostsWatcher` → `K8sHostStore.applyDiff`。
+
+- `K8sHostStore`（仿 `DynamicBackendStore`）：host→`HostEntry`（client/exposer/provisioner）生命周期 diff（增/删/改；namespace 变不重建 client）。
+- `K8sBackendResolver` 改从 store 运行时查 provisioner（host 增删改立即生效，INV-HOT-1）+ `invalidateHost`（host 重建清 resolve 缓存）。
+- 装配三 bean（`K8sOrchestrationConfig`）：`k8sHostStore`（`HostEntryFactory`）+ `backendResolver`（从 store）+ `k8sHostsWatcher`。
+- 文件不存在回退 `application.yml` 内联（005 兼容，INV-HOT-5）；解析失败保留旧配置（INV-HOT-4）。
+
+### 36.3 portal 管理（波3，INV-PORTAL-K8S-1~5）
+
+`/admin/k8s-hosts` CRUD（仿 `/admin/backends`）：`K8sHostAdminService` 写 `config/k8s-hosts.yaml` → 触发 `K8sHostsWatcher` 热重载。`K8sHostSecretCipher`（AES-GCM，密钥 `ARTHAS_GATEWAY_SECRET`）加密凭证；`K8sHostDto` 脱敏（无 password/privateKey，INV-PORTAL-K8S-2）；能力开关 `arthas-gateway.admin.k8s-hosts.enabled`。
+
+### 36.4 显示增强（波4，INV-DISP-3/4）
+
+`BackendDto` 加 K8S 来源字段（`k8sHost`/`pod`/`namespace`/`sourceDetail`/`ensureStatus`），portal list 可见 K8S 来源（缓解 `{server}-{pod}` 名字认知错位）。仍无 token/password（INV-SECRET-1 不破）。
+
+### 36.5 包边界（INV-BOUNDARY-3）
+
+`PackageBoundaryTest` 加 sshj 守护：gateway-core 不依赖 `net.schmizz`/`com.hierynomus`（SSH 仅 orchestration 包使用，与 fabric8 守护同理）。
+
+---
+
 > **下一步**：Part 5 深入 004 portal 管理面（后端 CRUD/任务 + 前端 SPA + 构建）。

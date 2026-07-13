@@ -144,7 +144,8 @@ public class BackendAdminService {
         return toDto(cfg, entry.state().name(), entry.isHealthy(), entry.breaker().state().name());
     }
 
-    private BackendDto toDto(BackendConfig cfg, String state, boolean healthy, String breaker) {
+    BackendDto toDto(BackendConfig cfg, String state, boolean healthy, String breaker) {
+        boolean k8s = cfg.isK8sMode();
         return new BackendDto(
                 cfg.name(),
                 cfg.source().name(),
@@ -156,7 +157,13 @@ public class BackendAdminService {
                 cfg.auth().mode().name(),
                 cfg.connectTimeoutMs(),
                 cfg.callTimeoutMs(),
-                cfg.maxConcurrentTasks());
+                cfg.maxConcurrentTasks(),
+                // 006 波4 T031：K8S 来源字段（k8sHost/pod/sourceDetail 从 cfg；namespace/ensureStatus 后置填充）
+                k8s ? cfg.k8sHost() : null,
+                k8s ? cfg.pod() : null,
+                null,
+                k8s ? "k8s:" + cfg.k8sHost() : "static",
+                null);
     }
 
     private BackendConfig toBackendConfig(CreateBackendRequest req, String name) {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 004 US1 后端管理页（admin-api-contract §1）。列表 + 增删改 + 健康徽标 + 错误提示。
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import {
   listBackends, createBackend, updateBackend, deleteBackend,
   type BackendDto, type BackendListResponse,
@@ -23,7 +23,16 @@ async function refresh() {
   }
 }
 
-onMounted(refresh)
+// 006 波4 T032：自动刷新（10s 轮询）—— ensure 后 portal list 可见新行，不强制手动刷新（INV-DISP-2）。
+// bug 根因之一：原仅 onMounted 拉一次，ensure 后须手动刷新才能看到新行动态纳管。
+let refreshTimer: number | undefined
+onMounted(() => {
+  refresh()
+  refreshTimer = window.setInterval(refresh, 10_000)
+})
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+})
 
 function openAdd() {
   editing.value = null

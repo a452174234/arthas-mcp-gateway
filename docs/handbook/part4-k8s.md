@@ -787,14 +787,20 @@ ssh root@192.168.31.92 'kubectl delete pod demo-business'
 - `K8sBackendResolver` 改从 store 运行时查 provisioner（host 增删改立即生效，INV-HOT-1）+ `invalidateHost`（host 重建清 resolve 缓存）。
 - 装配三 bean（`K8sOrchestrationConfig`）：`k8sHostStore`（`HostEntryFactory`）+ `backendResolver`（从 store）+ `k8sHostsWatcher`。
 - 文件不存在回退 `application.yml` 内联（005 兼容，INV-HOT-5）；解析失败保留旧配置（INV-HOT-4）。
+- **全局参数热生效**（T020）：`K8sParams` 快照（targetIp/mcpPort/arthasVersion/arthasPassword/ensureTimeout/...），`K8sHostStore` 持有（`updateParams`/`currentParams`，watcher 加载 `k8s-params` 段刷新）；`ArthasProvisioner` 经 `Supplier<K8sParams>` 读 `buildContext`（**supplier=null 走构造值，005 兼容**），下次 ensure 用新值（INV-HOT-3）。
+- **真实 IT 验证**：`K8sHostHotReloadIT`（host 增删改热重载）+ `K8sGlobalParamsHotReloadIT`（全局参数热刷新），均 @SpringBootTest + 测试床真实跑通。
 
 ### 36.3 portal 管理（波3，INV-PORTAL-K8S-1~5）
 
 `/admin/k8s-hosts` CRUD（仿 `/admin/backends`）：`K8sHostAdminService` 写 `config/k8s-hosts.yaml` → 触发 `K8sHostsWatcher` 热重载。`K8sHostSecretCipher`（AES-GCM，密钥 `ARTHAS_GATEWAY_SECRET`）加密凭证；`K8sHostDto` 脱敏（无 password/privateKey，INV-PORTAL-K8S-2）；能力开关 `arthas-gateway.admin.k8s-hosts.enabled`。
 
-### 36.4 显示增强（波4，INV-DISP-3/4）
+### 36.4 显示增强 + ensure 可见 bug 修复（波4，INV-DISP-1/3/4）
 
 `BackendDto` 加 K8S 来源字段（`k8sHost`/`pod`/`namespace`/`sourceDetail`/`ensureStatus`），portal list 可见 K8S 来源（缓解 `{server}-{pod}` 名字认知错位）。仍无 token/password（INV-SECRET-1 不破）。
+
+**T030 ensure 后 portal 不可见 bug 修复**：根因是 `BackendConfigWatcher:190-196` compose 异常吞咽 → holder 缺新 dynamic。修复采用 **list 兜底**（不动 RegistryComposer 核心，零回归）——`BackendAdminService.list` 合并 `dynamicStore.list()` 补全缺失的 dynamic。前端 `BackendListView` 加 10s 自动刷新（修复"ensure 后须手动刷新"体验 bug）。
+
+**真实 IT 验证**：`EnsureVisibleInPortalIT`（ensure → portal list 必含 `{server}-{pod}`，@SpringBootTest + 测试床真实跑通）。
 
 ### 36.5 包边界（INV-BOUNDARY-3）
 

@@ -134,6 +134,19 @@ claude -p "列出 arthas-gw 暴露的全部工具名，仅输出 JSON 数组" \
 
 ---
 
+## K8S Host 远程接入与配置热生效（006）
+
+006 在 005 基础上做四点迭代（[设计](./docs/superpowers/specs/2026-07-13-k8s-host-remote-access-design.md) · [规格](./specs/006-k8s-host-remote-access/spec.md) · [技术手册](./docs/handbook/part4-k8s.md)）：
+
+- **SSH 引导接入**（波1）：用户只配 master IP + root + 密码，网关 SSH 登 master 取 admin kubeconfig（标准 K8S `/etc/kubernetes/admin.conf`；k3s `/etc/rancher/k3s/k3s.yaml`），构造 fabric8 client——**免用户处理 K8S 鉴权**（INV-SSH-*，sshj 0.38.0）。
+- **全配置热生效**（波2）：`config/k8s-hosts.yaml` + `K8sHostsWatcher`（WatchService）+ `K8sHostStore`（host 生命周期 diff）+ `K8sParams`（全局参数，ArthasProvisioner supplier 读）。**改配置不重启**（INV-HOT-*）。
+- **portal 管理**（波3）：`/admin/k8s-hosts` CRUD + 前端 `/k8s-hosts`（Vue），`K8sHostSecretCipher` AES-GCM 加密凭证（INV-PORTAL-K8S-*）。
+- **显示增强 + bug 修复**（波4）：`BackendDto` 加 K8S 来源字段 + list 兜底修 ensure 后 portal 不可见 bug + 前端自动刷新（INV-DISP-*）。
+
+零 gateway-core K8S/SSH 依赖不变（ArchUnit sshj 守护 INV-BOUNDARY-3）；003/005 既有契约全不破（`./mvnw verify` 391 测试全绿：326 单测 + 65 IT）。
+
+---
+
 ## 测试（真实环境，零桩）
 
 **TDD 硬约束**：所有测试先于实现编写；**禁桩**——真实 arthas MCP + 真实业务服务产生真实诊断，故障用真实故障条件（停 JVM=不可达、关闭端口=连接拒绝、错 token=真实 401）。

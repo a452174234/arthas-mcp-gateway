@@ -40,6 +40,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest
 @TestPropertySource(properties = {
         "arthas-gateway.k8s.kubeconfig=test-env/k8s/kubeconfig/k3s-admin.yaml",
+        // 006 适配：k8s-hosts-file 指向不存在文件 → K8sHostsConfig 回退内联 k8s-hosts（下方 debian），
+        // 避免 006 项目根 config/k8s-hosts.yaml（hosts:[]）优先覆盖（store 读空 → unknown_k8s_host）
+        "arthas-gateway.k8s-hosts-file=nonexistent-test-k8s-hosts.yaml",
         "arthas-gateway.k8s-hosts[0].name=debian",
         "arthas-gateway.k8s-hosts[0].kubeconfig=test-env/k8s/kubeconfig/k3s-admin.yaml",
         "arthas-gateway.k8s-hosts[0].namespace=default"

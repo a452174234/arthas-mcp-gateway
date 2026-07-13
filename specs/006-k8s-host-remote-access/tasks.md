@@ -133,7 +133,7 @@
 
 ### 测试先于实现
 
-- [ ] T028 [P] [US4] Write failing `EnsureVisibleInPortalIT` in `src/test/java/com/arthas/gateway/backend/EnsureVisibleInPortalIT.java`（failsafe *IT，真实测试床：ensure 成功 → RegistryHolder.current() 含 {server}-{pod}，**不受** compose 异常吞咽影响；INV-DISP-1）
+- [X] T028 [P] [US4] Write failing `EnsureVisibleInPortalIT` in `src/test/java/com/arthas/gateway/backend/EnsureVisibleInPortalIT.java`（failsafe *IT，真实测试床：ensure 成功 → RegistryHolder.current() 含 {server}-{pod}，**不受** compose 异常吞咽影响；INV-DISP-1）
 - [X] T029 [P] [US4] Write failing `BackendDtoK8sFieldsTest` in `src/test/java/com/arthas/gateway/admin/backend/BackendDtoK8sFieldsTest.java`（K8S 来源 backend DTO 带 k8sHost/pod/namespace/sourceDetail/ensureStatus，INV-DISP-3；仍无 token/password，INV-DISP-4）
 
 ### 实现

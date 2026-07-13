@@ -110,7 +110,7 @@
 
 - [X] T021 [P] [US3] Write failing `K8sHostSecretCipherTest` in `src/test/java/com/arthas/gateway/admin/k8shost/K8sHostSecretCipherTest.java`（① encrypt→decrypt 往返；② isConfigured() 随 ENV；③ 未配 ENV → encrypt 抛/返状态；AES-GCM）
 - [X] T022 [P] [US3] Write failing `K8sHostAdminControllerTest` in `src/test/java/com/arthas/gateway/admin/k8shost/K8sHostAdminControllerTest.java`（① CRUD 写 k8s-hosts.yaml；② K8sHostDto 无 password/privateKey/passphrase，INV-PORTAL-K8S-2；③ 未配 SECRET → POST 含凭证 400 secret_key_not_configured，INV-PORTAL-K8S-3）
-- [ ] T023 [P] [US3] Write failing `K8sHostPortalCrudIT` in `src/test/java/com/arthas/gateway/admin/k8shost/K8sHostPortalCrudIT.java`（failsafe *IT，真实测试床：portal POST ssh host → 写 yaml 加密 → 热重载 → host 可路由；INV-PORTAL-K8S-1/4）
+- [X] T023 [P] [US3] Write failing `K8sHostPortalCrudIT` in `src/test/java/com/arthas/gateway/admin/k8shost/K8sHostPortalCrudIT.java`（failsafe *IT，真实测试床：portal POST ssh host → 写 yaml 加密 → 热重载 → host 可路由；INV-PORTAL-K8S-1/4）
 
 ### 实现
 

@@ -111,4 +111,20 @@ class PackageBoundaryTest {
                         + "ArthasProvisioner），不漂入 gateway-core 破零 K8S 依赖")
                 .check(classes);
     }
+
+    /**
+     * 006 波7 INV-BOUNDARY-3：诊断核心不得依赖 SSH 库（sshj：{@code net.schmizz.sshj} / {@code com.hierynomus}）。
+     *
+     * <p>SSH 引导（{@code SshKubeconfigFetcher} 等）仅 orchestration 包使用；诊断核心零 SSH 依赖，防止 gateway-core
+     * 被 SSH 库污染（与 fabric8 守护同理）。
+     */
+    @Test
+    void diagnosticCoreDoesNotDependOnSshj() {
+        noClasses()
+                .that().resideInAnyPackage(DIAGNOSTIC_CORE)
+                .should().dependOnClassesThat().resideInAnyPackage("net.schmizz..", "com.hierynomus..")
+                .because("006 INV-BOUNDARY-3: sshj SSH 库仅 orchestration 包使用（SshKubeconfigFetcher）；"
+                        + "诊断核心零 SSH 依赖，gateway-core 不被 SSH 污染")
+                .check(classes);
+    }
 }

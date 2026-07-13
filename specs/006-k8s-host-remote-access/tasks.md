@@ -150,7 +150,7 @@
 
 **Purpose**：包边界守护、回归、文档。
 
-- [ ] T033 [P] Write failing `PackageBoundaryTest` 扩展 in `src/test/java/com/arthas/gateway/architecture/PackageBoundaryTest.java`（① gateway-core 不依赖 `com.hierynomus.sshj`，INV-BOUNDARY-3；② SshKubeconfigFetcher/K8sHostStore/K8sHostsWatcher 在 orchestration；③ BackendResolver 接口仍零 fabric8/sshj import）
+- [X] T033 [P] Write failing `PackageBoundaryTest` 扩展 in `src/test/java/com/arthas/gateway/architecture/PackageBoundaryTest.java`（① gateway-core 不依赖 `com.hierynomus.sshj`，INV-BOUNDARY-3；② SshKubeconfigFetcher/K8sHostStore/K8sHostsWatcher 在 orchestration；③ BackendResolver 接口仍零 fabric8/sshj import）
 - [ ] T034 [P] Regression guard：`./mvnw verify -DskipFrontend=true` 全绿——003 既有契约（K8sEnsureContractIT/K8sListToolsContractIT/ArthasProvisionerIT）+ 005（K8sBackendResolver/NodePortExposer/CustomLauncher 契约 IT）+ ArchUnit + 001/002/004 既有全绿（FR-016 回归门禁）
 - [ ] T035 [P] Update docs：handbook `docs/handbook/part4-k8s.md` + `part5-portal.md` + `part9-decisions.md` 补 006（SSH 引导/热生效/portal/显示 + sshj 决策）+ README（宪法"每项新能力必须有文档"）
 - [ ] T036 Run `quickstart.md` validation：场景 A（SSH 引导）+ B（热生效）+ C（portal CRUD）+ D（显示+bug），逐项核对 Done Definition

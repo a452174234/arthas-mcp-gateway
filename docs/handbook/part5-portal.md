@@ -481,4 +481,23 @@ export default defineConfig({
 
 ---
 
+## 第 45 章 006 portal K8S Host 管理
+
+006 在 004 portal backend CRUD 基础上，新增 K8S Host 管理（`/admin/k8s-hosts`），让运维经网页增删改 K8S Host（含 SSH 引导凭证），改完触发热重载（006 波2 管道）。
+
+### 45.1 K8sHostAdminController + Service（admin/k8shost/）
+
+`/admin/k8s-hosts` CRUD（仿 `/admin/backends`，part5 §37）：
+
+- `K8sHostAdminService` 写 `config/k8s-hosts.yaml`（version 递增）→ 触发 `K8sHostsWatcher` 热重载（INV-PORTAL-K8S-1）。
+- `K8sHostDto`（**脱敏**：无 password/privateKey/passphrase，INV-PORTAL-K8S-2）+ `CreateK8sHostRequest`（含明文凭证，仅写入用）。
+- `K8sHostSecretCipher`（AES-GCM，密钥 `ARTHAS_GATEWAY_SECRET` env）加密凭证落盘（INV-PORTAL-K8S-4）；未配 SECRET → 写凭证端点 400 `secret_key_not_configured`（INV-PORTAL-K8S-3）。
+- 能力开关 `arthas-gateway.admin.k8s-hosts.enabled`（默认开；关则端点 404，INV-PORTAL-K8S-5）。
+
+### 45.2 BackendDto K8S 来源字段（波4 显示增强）
+
+`BackendDto`（part5 §37.4）加 K8S 来源字段：`k8sHost`/`pod`/`namespace`/`sourceDetail`/`ensureStatus`（INV-DISP-3），portal backend list 可见 K8S 来源（`sourceDetail=k8s:<host>`，缓解 `{server}-{pod}` 名字认知错位）。仍无 token/password（INV-SECRET-1 不破）。
+
+---
+
 > **下一步**：Part 6 配置全字段 + 38 工具清单 + 错误码速查 + 文件索引。

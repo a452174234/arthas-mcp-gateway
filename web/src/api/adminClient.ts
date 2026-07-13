@@ -51,6 +51,12 @@ export interface BackendDto {
   connectTimeoutMs: number
   callTimeoutMs: number
   maxConcurrentTasks: number
+  // 006 波4：K8S 来源字段（K8S 模式 backend 有值，静态 null）
+  k8sHost?: string
+  pod?: string
+  namespace?: string
+  sourceDetail?: string
+  ensureStatus?: string
 }
 
 export interface BackendSummary {
@@ -179,4 +185,48 @@ export function listTasks(params: ListTasksParams = {}): Promise<TaskSummaryPage
   if (params.size != null) qs.set('size', String(params.size))
   const query = qs.toString()
   return request<TaskSummaryPage>(`/tasks${query ? '?' + query : ''}`)
+}
+
+// ===== K8S Host 管理（006 波3，/admin/k8s-hosts）=====
+
+/** K8S Host 展示（脱敏：无 password/privateKey，INV-PORTAL-K8S-2）。 */
+export interface K8sHostDto {
+  name: string
+  namespace: string
+  mode: 'ssh' | 'kubeconfig'
+  sshHost?: string
+  sshUser?: string
+  kubeconfigRemotePath?: string
+  kubeconfig?: string
+}
+
+export interface K8sHostSsh {
+  host: string
+  port?: number
+  user: string
+  password?: string
+  privateKey?: string
+  passphrase?: string
+  kubeconfigRemotePath: string
+  serverOverride?: string
+  insecureSkipTlsVerify?: boolean
+}
+
+export interface CreateK8sHostRequest {
+  name: string
+  namespace?: string
+  kubeconfig?: string
+  ssh?: K8sHostSsh
+}
+
+export function listK8sHosts(): Promise<K8sHostDto[]> {
+  return request<K8sHostDto[]>('/k8s-hosts')
+}
+
+export function createK8sHost(req: CreateK8sHostRequest): Promise<K8sHostDto> {
+  return request<K8sHostDto>('/k8s-hosts', { method: 'POST', body: JSON.stringify(req) })
+}
+
+export function deleteK8sHost(name: string): Promise<void> {
+  return request<void>(`/k8s-hosts/${enc(name)}`, { method: 'DELETE' })
 }

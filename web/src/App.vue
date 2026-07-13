@@ -9,6 +9,7 @@
       <nav>
         <RouterLink to="/backends">后端管理</RouterLink>
         <RouterLink to="/tasks">任务导出</RouterLink>
+        <RouterLink to="/k8s-hosts">K8S Host</RouterLink>
       </nav>
     </header>
     <main class="portal-main">

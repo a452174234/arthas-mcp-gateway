@@ -21,5 +21,7 @@ public class SpaConfig implements WebMvcConfigurer {
     public void addViewControllers(ViewControllerRegistry registry) {
         registry.addViewController("/backends").setViewName("forward:/index.html");
         registry.addViewController("/tasks").setViewName("forward:/index.html");
+        // 006 波3：K8S Host 管理 SPA 路由 forward
+        registry.addViewController("/k8s-hosts").setViewName("forward:/index.html");
     }
 }

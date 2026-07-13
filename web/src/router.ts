@@ -9,6 +9,8 @@ const router = createRouter({
     { path: '/', redirect: '/backends' },
     { path: '/backends', name: 'backends', component: () => import('./views/BackendListView.vue') },
     { path: '/tasks', name: 'tasks', component: () => import('./views/TaskExportView.vue') },
+    // 006 波3：K8S Host 管理（/admin/k8s-hosts CRUD）
+    { path: '/k8s-hosts', name: 'k8s-hosts', component: () => import('./views/K8sHostListView.vue') },
   ],
 })
 
